@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*-daily.csv
+*-sessions.csv
+report.html
+report.md

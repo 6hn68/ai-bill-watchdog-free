@@ -298,6 +298,18 @@ class WatchdogTest(unittest.TestCase):
         self.assertAlmostEqual(rows[date(2026, 11, 22)][0], 0.0, places=6)
         self.assertAlmostEqual(rows[date(2026, 11, 22)][2], 4.0, places=6)
 
+    def test_bill_picks_money_not_tokens(self):
+        # Cursor-style export: "Total Tokens" must never be read as dollars.
+        bill = os.path.join(self.tmp, "cursor.csv")
+        with open(bill, "w") as f:
+            f.write("Date,Kind,Model,Total Tokens,Cost\n"
+                    "2026-11-17,Usage,claude-sonnet-4-5,2900000,1.80\n"
+                    "2026-11-20,Usage,claude-opus-4-1,1900000,2.40\n")
+        rows = {d: (lg, bl, gap) for d, lg, bl, gap in
+                watchdog.reconcile(self.r["days"], bill)}
+        self.assertAlmostEqual(rows[date(2026, 11, 17)][1], 1.80, places=6)
+        self.assertAlmostEqual(rows[date(2026, 11, 20)][1], 2.40, places=6)
+
     def test_bill_bad_columns(self):
         bill = os.path.join(self.tmp, "bad.csv")
         with open(bill, "w") as f:

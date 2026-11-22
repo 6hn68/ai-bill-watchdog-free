@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 (2026-11-23)
+- Bill check picks the money column (net amount / cost / amount / usd / total) and never a token column, so Cursor-style exports with "Total Tokens" read correctly.
+- Browser version with the same engine: https://abwd.vercel.app/app (runs in the tab, nothing uploaded).
+- 26 tests.
+
 ## 0.2.0 (2026-11-23)
 - Top 10 most expensive sessions (cost, share, model, project).
 - Loop detection: same tool call with the same input 3+ times in a row, with failures counted and the cost of retries after the 3rd try.

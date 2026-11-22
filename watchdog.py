@@ -25,7 +25,7 @@ import sys
 from collections import defaultdict
 from datetime import date, datetime, timezone
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 MTOK = 1_000_000
 BUCKETS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 
@@ -39,6 +39,8 @@ LONG_CONTEXT_TOKENS = 150_000
 PREMIUM_INPUT_PRICE = 5.0
 # Model used to price the "a cheaper model would do" what-if.
 DEFAULT_CHEAPER_MODEL = "claude-sonnet-4-6"
+# Bill CSV money column, most specific first.
+MONEY_KEYS = ("net_amount", "net amount", "cost", "amount", "usd", "total")
 
 
 # --------------------------------------------------------------------------
@@ -438,8 +440,10 @@ def reconcile(daily_rows, bill_path):
         reader = csv.DictReader(f)
         fields = [h for h in (reader.fieldnames or [])]
         dcol = next((h for h in fields if "date" in h.lower()), None)
-        acol = next((h for h in fields if any(
-            k in h.lower() for k in ("cost", "amount", "usd", "total"))), None)
+        # Money column: net amount > cost > amount > usd > total, and
+        # never a token count (Cursor exports have "Total Tokens").
+        acol = next((h for k in MONEY_KEYS for h in fields
+                     if k in h.lower() and "token" not in h.lower()), None)
         if not dcol or not acol:
             raise ValueError("bill CSV needs a date column and a "
                              "cost/amount column; found %s" % fields)

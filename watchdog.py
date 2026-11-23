@@ -20,13 +20,15 @@ import csv
 import hashlib
 import html
 import json
+import math
 import os
+import re
 import sys
 from collections import defaultdict
 import calendar
 from datetime import date, datetime, timedelta, timezone
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 MTOK = 1_000_000
 BUCKETS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 
@@ -582,6 +584,278 @@ def analyse(data, cfg, bill=None, budget=None):
 
 
 # --------------------------------------------------------------------------
+# dispute pack (v0.4.0): facts for a billing review you send yourself
+# --------------------------------------------------------------------------
+
+# Words that mark a bill row as a charge/payment rather than a usage line.
+CHARGE_WORDS = re.compile(r"recharge|reload|top[- ]?up|purchase|payment|"
+                          r"invoice|receipt|prepaid|credit", re.I)
+# Column names that describe what a bill row is.
+DESC_KEYS = ("description", "type", "kind", "category", "item", "product",
+             "event", "memo")
+# This many charges on one day is a "same-day multiple charges" burst.
+BURST_MIN = 2
+# A day is flagged when |gap| >= max(GAP_MIN_USD, GAP_SHARE * larger side).
+GAP_MIN_USD = 1.0
+GAP_SHARE = 0.2
+LETTER_MAX_DAYS = 10
+
+
+def usd(v):
+    """$1,234.56 with round-half-up on cents (same arithmetic as engine.js)."""
+    cents = int(math.floor(abs(v) * 100 + 0.5))
+    s = "{:,}".format(cents // 100) + ".%02d" % (cents % 100)
+    return ("-$" if v < 0 and cents else "$") + s
+
+
+def gap_flag(bill, logs):
+    gap = bill - logs
+    if abs(gap) < max(GAP_MIN_USD, GAP_SHARE * max(bill, logs)):
+        return ""
+    return "bill higher" if gap > 0 else "logs higher"
+
+
+def bill_charges(bill_path):
+    """Charge rows from a bill CSV: [{date, time, amount, label}] in file
+    order, plus which column decided it. Times are kept as written (HH:MM)."""
+    with open(bill_path, encoding="utf-8-sig", newline="") as f:
+        reader = csv.reader(f)
+        rows = [r for r in reader if len(r) > 1 or (r and r[0].strip())]
+    if not rows:
+        return [], None
+    fields = [h.strip() for h in rows[0]]
+    lower = [h.lower() for h in fields]
+    dcol = next((i for i, h in enumerate(lower) if "date" in h), None)
+    acol = next((i for k in MONEY_KEYS for i, h in enumerate(lower)
+                 if k in h and "token" not in h), None)
+    mcol = next((i for i, h in enumerate(lower)
+                 if h == "model" or h.startswith("model") or h == "sku"), None)
+    xcol = next((i for i, h in enumerate(lower)
+                 if any(k in h for k in DESC_KEYS)), None)
+    if dcol is None or acol is None:
+        return [], None
+    if xcol is None and mcol is not None:
+        return [], "usage export (has a model column, no description column)"
+    out = []
+    for r in rows[1:]:
+        raw_d = (r[dcol] if dcol < len(r) else "").strip()
+        raw_a = (r[acol] if acol < len(r) else "").replace("$", "").replace(",", "").strip()
+        if not ISO_AMOUNT.match(raw_a):
+            continue
+        try:
+            d = date.fromisoformat(raw_d[:10])
+        except ValueError:
+            continue
+        a = float(raw_a)
+        label = (r[xcol] if xcol is not None and xcol < len(r) else "").strip()
+        if a <= 0 or (xcol is not None and not CHARGE_WORDS.search(label)):
+            continue
+        m = TIME_RE.match(raw_d)
+        out.append({"date": d, "time": ("%s:%s" % m.groups()) if m else None,
+                    "amount": a, "label": label})
+    return out, (fields[xcol] if xcol is not None else "every row (no description column)")
+
+
+ISO_AMOUNT = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
+TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})")
+
+
+def find_bursts(charges, daily_rows):
+    by_day = defaultdict(list)
+    for c in charges:
+        by_day[c["date"]].append(c)
+    out = []
+    for d in sorted(by_day):
+        cs = by_day[d]
+        if len(cs) < BURST_MIN:
+            continue
+        times = sorted(c["time"] for c in cs if c["time"])
+        span = None
+        if len(times) >= 2:
+            h1, m1 = map(int, times[0].split(":"))
+            h2, m2 = map(int, times[-1].split(":"))
+            span = (h2 * 60 + m2) - (h1 * 60 + m1)
+        row = daily_rows.get(d)
+        out.append({"date": d, "count": len(cs),
+                    "total": sum(c["amount"] for c in cs),
+                    "amounts": [c["amount"] for c in cs],
+                    "first": times[0] if times else None,
+                    "last": times[-1] if times else None,
+                    "span_minutes": span,
+                    "logs": row["cost"] if row else 0.0,
+                    "log_messages": row["messages"] if row else 0})
+    return out
+
+
+def day_evidence(messages, d):
+    ms = [m for m in messages if m["date"] == d]
+    if not ms:
+        return None
+    by_model = defaultdict(float)
+    order = []
+    for m in ms:
+        if m["model"] not in by_model:
+            order.append(m["model"])
+        by_model[m["model"]] += m["cost"]
+    top = None
+    for k in order:
+        if top is None or by_model[k] > by_model[top]:
+            top = k
+    ts = sorted(m["ts"] for m in ms)
+    return {"date": d, "messages": len(ms),
+            "sessions": len(set(m["session"] for m in ms)),
+            "first": ts[0].strftime("%H:%M"), "last": ts[-1].strftime("%H:%M"),
+            "cost": sum(m["cost"] for m in ms), "top_model": top or "(none)"}
+
+
+def dispute(data, r, bill_path):
+    """Everything the pack needs, as plain values."""
+    rows = r["bill"] or []
+    charges, charge_rule = bill_charges(bill_path)
+    bursts = find_bursts(charges, r["days"])
+    has_logs = bool(data["messages"])
+    table = [{"date": d, "bill": b, "logs": lg, "gap": g,
+              "note": gap_flag(b, lg) if has_logs else ""}
+             for d, lg, b, g in rows]
+    high = [t for t in table if t["note"] == "bill higher"]
+    ev_days = sorted(set([t["date"] for t in high] + [b["date"] for b in bursts]))
+    evidence = [e for e in (day_evidence(data["messages"], d) for d in ev_days) if e]
+    return {"period": (rows[0][0], rows[-1][0]) if rows else (None, None),
+            "bill_total": sum(t["bill"] for t in table),
+            "logs_total": sum(t["logs"] for t in table),
+            "has_logs": has_logs,
+            "log_messages": sum(r["days"][t["date"]]["messages"]
+                                for t in table if t["date"] in r["days"]),
+            "table": table, "high_days": high,
+            "high_total": sum(t["gap"] for t in high),
+            "bursts": bursts, "charge_rule": charge_rule,
+            "evidence": evidence}
+
+
+def dispute_letter(dp):
+    """Plain-fact draft. Never promises an outcome."""
+    if not dp["high_days"] and not dp["bursts"]:
+        return None
+    p1, p2 = dp["period"]
+    span = str(p1) if p1 == p2 else "%s to %s" % (p1, p2)
+    when = "on %s" % p1 if p1 == p2 else "from %s to %s" % (p1, p2)
+    L = ["Subject: Request for a billing review, %s" % span, "",
+         "Hello,", "",
+         "I would like a review of the charges on my account %s. "
+         "The figures below come from my own bill export%s." % (
+             when, " and my local usage logs" if dp["has_logs"] else ""), "",
+         "- My bill for these dates totals %s." % usd(dp["bill_total"])]
+    if dp["has_logs"]:
+        L.append("- My local usage logs for the same dates come to an estimated "
+                 "%s at published list prices." % usd(dp["logs_total"]))
+    if dp["high_days"]:
+        parts = ["%s (%s)" % (t["date"], usd(t["gap"]))
+                 for t in dp["high_days"][:LETTER_MAX_DAYS]]
+        more = len(dp["high_days"]) - LETTER_MAX_DAYS
+        L.append("- On %d day(s) the bill is higher than the logs, by %s in "
+                 "total: %s%s." % (len(dp["high_days"]), usd(dp["high_total"]),
+                                   ", ".join(parts),
+                                   (" and %d more" % more) if more > 0 else ""))
+    for b in dp["bursts"]:
+        when = ""
+        if b["span_minutes"] is not None:
+            when = " between %s and %s (%d minutes, times as shown in the bill)" % (
+                b["first"], b["last"], b["span_minutes"])
+        logs = ""
+        if dp["has_logs"]:
+            logs = " My logs show an estimated %s of usage that day." % usd(b["logs"])
+        L.append("- On %s, %d charges totaling %s were made%s: %s.%s" % (
+            b["date"], b["count"], usd(b["total"]), when,
+            ", ".join(usd(a) for a in b["amounts"]), logs))
+    L += ["", "The attached day-by-day table shows each date.", "",
+          "Could you please:",
+          "1. Tell me which usage each of these charges paid for.",
+          "2. Review whether any of these charges should be credited or refunded.",
+          ""]
+    if dp["has_logs"]:
+        L += ["I understand that log-based figures are estimates and may not "
+              "include every billable item.", ""]
+    L += ["Thank you,", "[Your name]", "[Account email or organization ID]"]
+    return "\n".join(L)
+
+
+def dispute_markdown(dp, cfg):
+    p1, p2 = dp["period"]
+    L = ["# Billing dispute evidence pack", "",
+         "Made by AI Bill Watchdog v%s on your own computer from your own files. "
+         "Nothing was uploaded." % VERSION, "",
+         "This pack states facts from your files. It does not promise a refund "
+         "or credit. You decide whether to send it, and you send it yourself.",
+         "", "## Summary", "",
+         "- Bill dates in your CSV: %s" % (p1 if p1 == p2 else "%s to %s" % (p1, p2)),
+         "- Bill total: %s" % usd(dp["bill_total"])]
+    if dp["has_logs"]:
+        L.append("- Local log estimate for the same dates: %s (%d requests)"
+                 % (usd(dp["logs_total"]), dp["log_messages"]))
+        L.append("- Days where the bill is higher than the logs: %d, %s in total"
+                 % (len(dp["high_days"]), usd(dp["high_total"])))
+    else:
+        L.append("- Local logs: none provided, so no bill-vs-logs comparison")
+    L.append("- Days with %d or more charges: %d" % (BURST_MIN, len(dp["bursts"])))
+    if dp["charge_rule"]:
+        L.append("- Charge rows read from: %s" % dp["charge_rule"])
+    if dp["bursts"]:
+        L += ["", "## Same-day multiple charges"]
+        for b in dp["bursts"]:
+            L += ["", "### %s: %d charges, %s" % (b["date"], b["count"], usd(b["total"])), ""]
+            if b["span_minutes"] is not None:
+                L.append("- Times as written in the bill: %s to %s (%d minutes)"
+                         % (b["first"], b["last"], b["span_minutes"]))
+            else:
+                L.append("- The bill has no times for these charges")
+            L.append("- Amounts: %s" % ", ".join(usd(a) for a in b["amounts"]))
+            if dp["has_logs"]:
+                L.append("- Local log estimate for this day: %s (%d requests)"
+                         % (usd(b["logs"]), b["log_messages"]))
+    L += ["", "## Day by day", ""]
+    if dp["has_logs"]:
+        L += ["| Date | Bill | Logs (estimate) | Difference | Note |",
+              "|---|---:|---:|---:|---|"]
+        for t in dp["table"]:
+            L.append("| %s | %s | %s | %s | %s |" % (
+                t["date"], usd(t["bill"]), usd(t["logs"]), usd(t["gap"]), t["note"]))
+    else:
+        L += ["| Date | Bill |", "|---|---:|"]
+        for t in dp["table"]:
+            L.append("| %s | %s |" % (t["date"], usd(t["bill"])))
+    if dp["evidence"]:
+        L += ["", "## What your logs show on those days", "",
+              "| Date | Requests | Sessions | First | Last | Logs cost | Top model |",
+              "|---|---:|---:|---|---|---:|---|"]
+        for e in dp["evidence"]:
+            L.append("| %s | %d | %d | %s | %s | %s | %s |" % (
+                e["date"], e["messages"], e["sessions"], e["first"], e["last"],
+                usd(e["cost"]), e["top_model"]))
+        L.append("")
+        L.append("Times are local time on this computer.")
+    L += ["", "## How the numbers are made", "",
+          "Bill figures are the sum of the money column in your CSV, by the date "
+          "as written. A day with %d or more charge rows (recharges, top-ups, "
+          "purchases, invoices) is listed above." % BURST_MIN]
+    if dp["has_logs"]:
+        L.append("")
+        L.append("The log estimate is the token counts in your Claude Code logs "
+                 "times the list prices in prices.json (%s, checked %s). Logs "
+                 "can miss some billable usage, so a difference is a question "
+                 "to ask the provider, not proof of an error. A day is noted "
+                 "when the difference is at least $1 and at least 20%% of the "
+                 "larger figure." % (cfg.get("source", "?"), cfg.get("fetched_at", "?")))
+    letter = dispute_letter(dp)
+    L += ["", "## Draft message (edit before sending)", ""]
+    if letter:
+        L += ["```", letter, "```"]
+    else:
+        L.append("Nothing in these files points to a billing problem, so no "
+                 "draft was written.")
+    return "\n".join(L) + "\n"
+
+
+# --------------------------------------------------------------------------
 # output
 # --------------------------------------------------------------------------
 
@@ -844,6 +1118,59 @@ def html_report(r, cfg, top=10):
             "</title><style>%s</style>%s" % (style, "\n".join(body)))
 
 
+def dispute_html(md):
+    """Small, dependency-free Markdown-to-HTML for the dispute pack."""
+    body, in_table, in_pre, in_list = [], False, False, False
+    for line in md.splitlines():
+        if line.startswith("```"):
+            body.append("</pre>" if in_pre else "<pre>")
+            in_pre = not in_pre
+            continue
+        if in_pre:
+            body.append(html.escape(line))
+            continue
+        if in_list and not line.startswith("- "):
+            body.append("</ul>")
+            in_list = False
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if set("".join(cells)) <= set("-:"):
+                continue
+            tag = "td" if in_table else "th"
+            if not in_table:
+                body.append("<table>")
+                in_table = True
+            body.append("<tr>" + "".join("<%s>%s</%s>" % (tag, html.escape(c), tag)
+                                         for c in cells) + "</tr>")
+            continue
+        if in_table:
+            body.append("</table>")
+            in_table = False
+        if line.startswith("### "):
+            body.append("<h3>%s</h3>" % html.escape(line[4:]))
+        elif line.startswith("## "):
+            body.append("<h2>%s</h2>" % html.escape(line[3:]))
+        elif line.startswith("# "):
+            body.append("<h1>%s</h1>" % html.escape(line[2:]))
+        elif line.startswith("- "):
+            if not in_list:
+                body.append("<ul>")
+                in_list = True
+            body.append("<li>%s</li>" % html.escape(line[2:]))
+        elif line.strip():
+            body.append("<p>%s</p>" % html.escape(line))
+    for flag, tag in ((in_list, "</ul>"), (in_table, "</table>"), (in_pre, "</pre>")):
+        if flag:
+            body.append(tag)
+    style = ("body{font-family:system-ui,sans-serif;max-width:860px;margin:2em auto;"
+             "padding:0 1em;line-height:1.5}table{border-collapse:collapse;width:100%}"
+             "td,th{border:1px solid #ccc;padding:4px 6px;font-size:14px;text-align:left}"
+             "pre{white-space:pre-wrap;background:#f6f6f6;padding:1em;border:1px solid #ddd}"
+             "h1{font-size:26px}h2{font-size:19px;margin-top:1.6em}h3{font-size:16px}")
+    return ("<!doctype html><meta charset='utf-8'><title>Billing dispute evidence pack"
+            "</title><style>%s</style>%s" % (style, "\n".join(body)))
+
+
 def write_csvs(r, prefix):
     with open(prefix + "-daily.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -908,10 +1235,17 @@ def main(argv=None):
                     help="write PREFIX-daily.csv and PREFIX-sessions.csv")
     ap.add_argument("--bill", metavar="CSV",
                     help="compare with a bill CSV (date + cost/amount columns)")
+    ap.add_argument("--dispute", metavar="FILE",
+                    help="with --bill: write a billing dispute evidence pack "
+                         "(.md or .html): day-by-day gaps, same-day multiple "
+                         "charges, log summary, draft message")
     ap.add_argument("--json", action="store_true",
                     help="print JSON instead of text")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args(argv)
+    if a.dispute and not a.bill:
+        print("--dispute needs --bill (your bill CSV).", file=sys.stderr)
+        return 1
     if not os.path.isdir(a.logs):
         print("Log folder not found: %s\nUse --logs to point at your Claude "
               "Code projects folder." % a.logs, file=sys.stderr)
@@ -945,6 +1279,17 @@ def main(argv=None):
         write_csvs(r, a.csv)
         if not a.json:
             print("CSV written: %s-daily.csv, %s-sessions.csv" % (a.csv, a.csv))
+    if a.dispute:
+        dp = dispute(data, r, a.bill)
+        md = dispute_markdown(dp, cfg)
+        content = (dispute_html(md) if a.dispute.lower().endswith(
+            (".html", ".htm")) else md)
+        with open(a.dispute, "w", encoding="utf-8") as f:
+            f.write(content)
+        if not a.json:
+            print("\nDispute pack written: %s (%d day(s) bill higher, %d "
+                  "day(s) with multiple charges)" % (
+                      a.dispute, len(dp["high_days"]), len(dp["bursts"])))
     if r["pace"] and r["pace"]["over_budget"]:
         return 2
     return 0

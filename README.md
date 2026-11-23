@@ -82,12 +82,26 @@ python3 watchdog.py --budget 200              # exit code 2 if this month is on 
 python3 watchdog.py --report report.html      # one-page report (.html or .md)
 python3 watchdog.py --csv usage               # usage-daily.csv + usage-sessions.csv
 python3 watchdog.py --bill console-export.csv # compare logs with your bill, day by day
+python3 watchdog.py --bill billing.csv --dispute pack.md   # dispute pack (.md or .html)
 python3 watchdog.py --json                    # machine-readable output
 python3 watchdog.py --top 20                  # list more sessions
 python3 watchdog.py --logs /other/path        # a different log folder
 ```
 
 **Bill check** (`--bill`) takes any CSV that has a date column and a cost or amount column, such as a usage export from your provider's console. It prints, day by day, the bill minus what your logs explain. A big gap means usage the logs don't show, for example another machine, another tool or a key you forgot about.
+
+**Dispute pack** (`--dispute FILE`, needs `--bill`) writes a file you can attach to a billing review request. It holds:
+
+- day by day, your bill next to what your logs explain, with the days where the bill is higher marked;
+- same-day multiple charges: 2 or more charge rows (recharge, top-up, credit purchase, invoice, payment) on one date, with the times exactly as your bill writes them;
+- for each marked day, what your logs show: requests, sessions, first and last request time, top model;
+- a short English draft message that states these facts and asks for a review.
+
+The pack only states facts from your own files. It does not promise a refund or credit, nobody sends it for you, and no one takes a cut. You read it, edit it, and decide whether to send it yourself.
+
+Which rows count as charges: if the CSV has a description-type column (description, type, item, category, ...), a row counts when its amount is above zero and the text mentions a recharge, top-up, purchase, credit, invoice, payment or charge. A CSV with no description and no model column (a plain list of payments) counts every positive row. A CSV with a model column and no description is read as a usage export, so it has no charges, only daily totals.
+
+Example: [`examples/dispute-demo/`](examples/dispute-demo/) rebuilds the five auto-recharge invoices reported publicly in [anthropics/claude-code#110959](https://github.com/anthropics/claude-code/issues/110959) (2026-11-18, five charges totaling $4,349.73). Only the amounts from that issue are used; the issue gives the first and last times, not each charge's time, so the demo bill has no times.
 
 **Month pace** is always shown: spend so far in the month of your latest activity, and a straight-line projection for the whole month. With `--budget` the script exits with code 2 when the projection is over budget, so you can use it in a cron job or CI step.
 
@@ -117,7 +131,7 @@ If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage
 python3 -m unittest discover -s tests -v
 ```
 
-The 37 tests run on generated logs. Every expected dollar figure is worked out by hand from list prices.
+The 45 tests run on generated logs. Every expected dollar figure is worked out by hand from list prices.
 
 ## License
 

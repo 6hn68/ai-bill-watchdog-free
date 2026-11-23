@@ -473,5 +473,118 @@ class WatchdogTest(unittest.TestCase):
             self.assertIn(s, out)
 
 
+DISPUTE_BILL = (
+    "Date,Description,Amount\n"
+    "2026-11-17T09:10:00Z,Auto-recharge credits,10.00\n"
+    "2026-11-17T09:31:00Z,Auto-recharge credits,15.50\n"
+    "2026-11-18,Usage,1.20\n"
+    "2026-11-19 14:05,Credit purchase,5\n"
+    "2026-11-22,Invoice payment,\"$1,000.00\"\n")
+
+
+class DisputeTest(unittest.TestCase):
+    """Dispute pack. Log day costs (hand-worked in build()): 11-17 $1.80,
+    11-18 $1.2575, 11-20 $0.06; 11-19 has only unpriced tokens ($0)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="watchdog-dispute-")
+        cls.logs = os.path.join(cls.tmp, "projects")
+        build(cls.logs)
+        cls.bill = os.path.join(cls.tmp, "bill.csv")
+        with open(cls.bill, "w", encoding="utf-8") as f:
+            f.write(DISPUTE_BILL)
+        cls.cfg = watchdog.load_prices(PRICES)
+        cls.data = watchdog.scan(cls.logs, cls.cfg)
+        cls.r = watchdog.analyse(cls.data, cls.cfg, cls.bill)
+        cls.dp = watchdog.dispute(cls.data, cls.r, cls.bill)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_usd_format(self):
+        self.assertEqual(watchdog.usd(4349.73), "$4,349.73")
+        self.assertEqual(watchdog.usd(0.125), "$0.13")      # half-up on cents
+        self.assertEqual(watchdog.usd(-1.2), "-$1.20")
+        self.assertEqual(watchdog.usd(-0.001), "$0.00")
+
+    def test_charge_rows_and_burst(self):
+        charges, rule = watchdog.bill_charges(self.bill)
+        self.assertEqual(rule, "Description")
+        # the "Usage" row is not a charge
+        self.assertEqual([c["amount"] for c in charges], [10.0, 15.5, 5.0, 1000.0])
+        self.assertEqual(len(self.dp["bursts"]), 1)
+        b = self.dp["bursts"][0]
+        self.assertEqual((b["date"], b["count"], b["first"], b["last"],
+                          b["span_minutes"]),
+                         (date(2026, 11, 17), 2, "09:10", "09:31", 21))
+        self.assertAlmostEqual(b["total"], 25.5)
+        self.assertAlmostEqual(b["logs"], 1.80, places=6)
+
+    def test_bill_higher_days(self):
+        high = [(t["date"], round(t["gap"], 6)) for t in self.dp["high_days"]]
+        # 11-17: 25.50-1.80; 11-19: 5-0; 11-22: 1000-0. 11-18 gap -0.0575 is small.
+        self.assertEqual(high, [(date(2026, 11, 17), 23.7),
+                                (date(2026, 11, 19), 5.0),
+                                (date(2026, 11, 22), 1000.0)])
+        self.assertAlmostEqual(self.dp["high_total"], 1028.7, places=6)
+        self.assertEqual([e["date"] for e in self.dp["evidence"]],
+                         [date(2026, 11, 17), date(2026, 11, 19)])
+        e = self.dp["evidence"][0]
+        self.assertEqual((e["messages"], e["sessions"], e["first"], e["last"]),
+                         (2, 1, "12:00", "14:00"))
+
+    def test_letter_states_facts_only(self):
+        letter = watchdog.dispute_letter(self.dp)
+        self.assertIn("2 charges totaling $25.50 were made between 09:10 and "
+                      "09:31 (21 minutes", letter)
+        self.assertIn("by $1,028.70 in total", letter)
+        low = letter.lower()
+        for bad in ("guarantee", "we will", "we'll", "refund is", "you owe"):
+            self.assertNotIn(bad, low)
+        self.assertNotIn("6hn68", letter)
+
+    def test_usage_export_has_no_bursts(self):
+        p = os.path.join(self.tmp, "usage.csv")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("Date,Model,Cost\n2026-11-17,sonnet,1\n2026-11-17,opus,2\n")
+        charges, rule = watchdog.bill_charges(p)
+        self.assertEqual(charges, [])
+        self.assertTrue(rule.startswith("usage export"))
+
+    def test_clean_bill_writes_no_draft(self):
+        p = os.path.join(self.tmp, "clean.csv")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("Date,Cost\n2026-11-17,1.80\n")
+        d = watchdog.filter_range(self.data, "2026-11-17", "2026-11-17")
+        r = watchdog.analyse(d, self.cfg, p)
+        dp = watchdog.dispute(d, r, p)
+        self.assertIsNone(watchdog.dispute_letter(dp))
+        self.assertIn("no draft was written", watchdog.dispute_markdown(dp, self.cfg))
+
+    def test_cli_dispute_needs_bill_and_writes_md_html(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(watchdog.main(["--logs", self.logs, "--dispute",
+                                            os.path.join(self.tmp, "x.md")]), 1)
+        for ext in ("md", "html"):
+            out = os.path.join(self.tmp, "pack." + ext)
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(watchdog.main(["--logs", self.logs, "--bill",
+                                                self.bill, "--dispute", out]), 0)
+            text = read(out)
+            self.assertIn("Billing dispute evidence pack", text)
+            self.assertIn("$1,028.70", text)
+            if ext == "html":
+                self.assertIn("<pre>", text)
+                self.assertNotIn("```", text)
+
+    def test_public_demo_numbers(self):
+        demo = os.path.join(ROOT, "examples", "dispute-demo")
+        charges, _ = watchdog.bill_charges(os.path.join(demo, "bill.csv"))
+        self.assertAlmostEqual(sum(c["amount"] for c in charges), 4349.73, places=6)
+        self.assertEqual(len(charges), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

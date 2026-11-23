@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (2026-11-23)
+- `--dispute FILE` (with `--bill`): dispute pack in Markdown or HTML. Day-by-day bill vs logs, same-day multiple charges (with times as the bill writes them), per-day log evidence (requests, sessions, first/last time, top model), and a fact-only English draft message. It does not promise a refund; you send it yourself.
+- Example pack built from the amounts in a public issue: `examples/dispute-demo/`.
+- The browser version shows the same pack and lets you download it or copy the draft (parity tests: the pack text is byte-identical in 3 time zones).
+- 45 tests.
+
 ## 0.3.0 (2026-11-23)
 - `--since` / `--until YYYY-MM-DD` date range (works together with `--days`).
 - `--period week|month`: totals by week (starting Monday) or by month.

@@ -351,6 +351,18 @@ class WatchdogTest(unittest.TestCase):
         with open(pre + "-daily.csv") as f:
             self.assertEqual(len(f.read().strip().splitlines()), 1 + 5)
 
+    def test_report_watermark(self):
+        wm = ("Made with ai-bill-watchdog-free "
+              "(github.com/6hn68/ai-bill-watchdog-free)")
+        md = watchdog.markdown_report(self.r, self.cfg)
+        self.assertIn(wm, md)
+        self.assertTrue(md.rstrip().endswith(wm))
+        ht = watchdog.html_report(self.r, self.cfg)
+        self.assertIn(wm, ht)
+        self.assertTrue(ht.rstrip().endswith("</p>"))
+        fixture = read(os.path.join(ROOT, "examples", "sample-report.md"))
+        self.assertIn(wm, fixture)
+
     def test_json_output(self):
         buf = io.StringIO()
         with redirect_stdout(buf):

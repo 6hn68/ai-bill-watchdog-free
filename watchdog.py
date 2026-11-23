@@ -1083,6 +1083,9 @@ def markdown_report(r, cfg, top=10):
     L.append("")
     L.append("_API-equivalent cost at list price, not an invoice. Nothing in "
              "this report left your machine._")
+    L.append("")
+    L.append("Made with ai-bill-watchdog-free "
+             "(github.com/6hn68/ai-bill-watchdog-free)")
     return "\n".join(L) + "\n"
 
 

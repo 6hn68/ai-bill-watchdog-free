@@ -57,3 +57,5 @@ This month (2026-11) so far: $3.20 in 21 of 30 days -> on pace for $4.57.
 - `Bash {"command": "npm test"}` x10, 10 failed. Cost $0.43; wasted after 3 tries $0.30.
 
 _API-equivalent cost at list price, not an invoice. Nothing in this report left your machine._
+
+Made with ai-bill-watchdog-free (github.com/6hn68/ai-bill-watchdog-free)

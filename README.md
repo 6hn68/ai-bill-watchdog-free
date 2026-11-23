@@ -46,6 +46,15 @@ mkdir -p ~/.claude/skills/bill-check && cd ~/.claude/skills/bill-check && curl -
 
 The skill runs the script locally ([skill file](claude-skill/bill-check/SKILL.md)), writes `~/ai-bill-report.html`, and asks Claude for an 8-line summary, which uses a few tokens. Prefer no Claude at all? Use the one-liners above, or the in-browser check-up at https://abwd.vercel.app/app.
 
+Install it as a Claude Code plugin instead, and it updates with the repo:
+
+```sh
+claude plugin marketplace add 6hn68/ai-bill-watchdog-free
+claude plugin install ai-bill-watchdog@tollen
+```
+
+That installs the `/bill-check` skill above. (One command also works on recent Claude Code: `claude plugin install ai-bill-watchdog --marketplace 6hn68/ai-bill-watchdog-free`.)
+
 ## What you get
 
 It reads the session logs Claude Code already writes to `~/.claude/projects/` and answers three questions:

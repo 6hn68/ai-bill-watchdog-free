@@ -1,0 +1,19 @@
+{
+  "description": "Tollen (free): local-only Claude Code bill checker and dispute evidence builder.",
+  "name": "tollen",
+  "owner": {
+    "name": "6hn68",
+    "url": "https://github.com/6hn68"
+  },
+  "plugins": [
+    {
+      "author": {
+        "name": "6hn68"
+      },
+      "description": "Find where your Claude Code money went: bill reconciliation, overcharge flags, dispute evidence. Local only, uploads nothing.",
+      "name": "ai-bill-watchdog",
+      "source": "./",
+      "version": "0.4.0"
+    }
+  ]
+}

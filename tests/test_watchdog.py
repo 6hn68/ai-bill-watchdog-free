@@ -480,6 +480,30 @@ class WatchdogTest(unittest.TestCase):
             self.assertIn(s, out)
 
 
+class PluginManifestTest(unittest.TestCase):
+    """Claude Code plugin manifest (.claude-plugin/plugin.json and
+    marketplace.json), per code.claude.com/docs/en/plugins/publish."""
+
+    def test_manifests_parse_and_match(self):
+        plug = json.load(open(os.path.join(
+            ROOT, ".claude-plugin", "plugin.json")))
+        mkt = json.load(open(os.path.join(
+            ROOT, ".claude-plugin", "marketplace.json")))
+        self.assertEqual(plug["name"], "ai-bill-watchdog")
+        self.assertEqual(plug["version"], watchdog.VERSION)
+        self.assertTrue(plug["description"])
+        self.assertEqual(mkt["name"], "tollen")
+        entry = mkt["plugins"][0]
+        self.assertEqual(entry["name"], plug["name"])
+        self.assertEqual(entry["source"], "./")
+        skill_dir = os.path.join(ROOT, plug["skills"][0].lstrip("./"))
+        self.assertTrue(os.path.isfile(os.path.join(skill_dir, "SKILL.md")))
+        readme = read(os.path.join(ROOT, "README.md"))
+        self.assertIn("claude plugin marketplace add 6hn68/ai-bill-watchdog-free",
+                      readme)
+        self.assertIn("claude plugin install ai-bill-watchdog@tollen", readme)
+
+
 DISPUTE_BILL = (
     "Date,Description,Amount\n"
     "2026-11-17T09:10:00Z,Auto-recharge credits,10.00\n"

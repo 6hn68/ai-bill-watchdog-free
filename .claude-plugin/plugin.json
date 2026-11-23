@@ -1,0 +1,22 @@
+{
+  "author": {
+    "name": "6hn68",
+    "url": "https://github.com/6hn68/ai-bill-watchdog-free"
+  },
+  "description": "Tollen (free): find where your Claude Code money went. Reconciles your API bill against local logs, spots overcharges and auto-recharges, and builds dispute evidence you can send yourself. Local only, uploads nothing.",
+  "homepage": "https://github.com/6hn68/ai-bill-watchdog-free",
+  "keywords": [
+    "billing",
+    "claude-code",
+    "cost",
+    "usage",
+    "dispute"
+  ],
+  "license": "MIT",
+  "name": "ai-bill-watchdog",
+  "repository": "https://github.com/6hn68/ai-bill-watchdog-free",
+  "skills": [
+    "./claude-skill/bill-check"
+  ],
+  "version": "0.4.0"
+}

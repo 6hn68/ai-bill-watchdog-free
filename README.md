@@ -1,6 +1,14 @@
-# AI Bill Watchdog (free)
+# Tollen (free) — formerly AI Bill Watchdog
 
-**Find out where your Claude Code money went, and what to change.** One Python file, runs on your machine, uploads nothing.
+**For developers who pay cash for API usage: reconcile your API bill against your own logs, spot overcharges and auto-recharges, and build dispute evidence you can send yourself.** Free, one Python file, runs locally, uploads nothing.
+
+- **Reconcile your bill, day by day.** `python3 watchdog.py --bill billing.csv` compares your bill CSV with what your logs explain. A big gap means usage your logs don't show — another machine, another tool, or a key you forgot about.
+- **Turn a gap into dispute evidence.** `python3 watchdog.py --bill billing.csv --dispute pack.md` writes a pack you can attach to a billing review request: bill vs. logs day by day, same-day multiple charges flagged, and what your logs show for each flagged day, plus a short draft message. It states facts from your own files only. It does not promise a refund or credit, nobody sends it for you, and no one takes a cut.
+- **Local only, no sign-up.** No `pip install`, no Node, no account, no API key. It reads local files only and makes no network calls. It never reads API keys or passwords, and never copies your prompts into reports.
+
+Example: the demo in `examples/dispute-demo/` rebuilds the five auto-recharge invoices reported publicly in anthropics/claude-code#110959 (2026-11-18, five charges totaling $4,349.73).
+
+## Try it
 
 ```bash
 curl -LO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/watchdog.py
@@ -8,7 +16,11 @@ curl -LO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/pric
 python3 watchdog.py
 ```
 
-That's it. No `pip install` and no Node, account or API key. Python 3.8+ is already on macOS and most Linux machines.
+That's it. Python 3.8+ is already on macOS and most Linux machines. By default it reads the session logs Claude Code already writes to `~/.claude/projects/` and writes `report.html`.
+
+No download? Try the free in-browser check-up: https://abwd.vercel.app/app
+
+> Honest limit: logs are read from Claude Code only, for now. The bill CSV for `--bill` can come from any provider, including OpenAI. Dollar figures from logs are API-equivalent (tokens × list price), not your invoice.
 
 ## Easiest ways to run it
 

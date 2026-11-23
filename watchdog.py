@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI Bill Watchdog (free) -- find where your Claude Code money went.
+"""Tollen (free, formerly AI Bill Watchdog) -- find where your Claude Code money went.
 
 Reads the session logs Claude Code already writes to ~/.claude/projects/
 and answers three questions:
@@ -782,7 +782,7 @@ def dispute_letter(dp):
 def dispute_markdown(dp, cfg):
     p1, p2 = dp["period"]
     L = ["# Billing dispute evidence pack", "",
-         "Made by AI Bill Watchdog v%s on your own computer from your own files. "
+         "Made by Tollen v%s on your own computer from your own files. "
          "Nothing was uploaded." % VERSION, "",
          "This pack states facts from your files. It does not promise a refund "
          "or credit. You decide whether to send it, and you send it yourself.",
@@ -931,7 +931,7 @@ def extra_sections(r, opts):
 def text_report(r, cfg, top=10, opts=None):
     opts = opts or {}
     L = []
-    L.append("AI Bill Watchdog v%s  (local only, nothing uploaded)" % VERSION)
+    L.append("Tollen v%s  (local only, nothing uploaded)" % VERSION)
     L.append("Prices: %s, source %s" % (cfg.get("fetched_at", "?"),
                                          cfg.get("source", "?")))
     w = price_age_warning(cfg)
@@ -1006,7 +1006,7 @@ def text_report(r, cfg, top=10, opts=None):
 
 
 def markdown_report(r, cfg, top=10):
-    L = ["# AI Bill Watchdog report", ""]
+    L = ["# Tollen report", ""]
     if not r["days"]:
         return "# AI Bill Watchdog report\n\nNo usage found.\n"
     days = r["days"]

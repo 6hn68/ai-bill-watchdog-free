@@ -10,6 +10,30 @@ python3 watchdog.py
 
 That's it. No `pip install` and no Node, account or API key. Python 3.8+ is already on macOS and most Linux machines.
 
+## Easiest ways to run it
+
+No folder hunting. Each line downloads `watchdog.py` and `prices.json` from this repo, reads the default log folder (`~/.claude/projects`), writes `report.html` and opens it in your browser. Nothing is uploaded. [Read the source first](https://github.com/6hn68/ai-bill-watchdog-free/blob/main/watchdog.py).
+
+macOS / Linux:
+
+```sh
+mkdir -p ~/ai-bill-watchdog && cd ~/ai-bill-watchdog && curl -fsSLO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/watchdog.py && curl -fsSLO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/prices.json && python3 watchdog.py --report report.html && (open report.html 2>/dev/null || xdg-open report.html 2>/dev/null || echo "Open $PWD/report.html")
+```
+
+Windows PowerShell:
+
+```powershell
+$u="https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main"; $d=Join-Path $HOME "ai-bill-watchdog"; New-Item -ItemType Directory -Force $d | Out-Null; Set-Location $d; iwr "$u/watchdog.py" -OutFile watchdog.py -UseBasicParsing; iwr "$u/prices.json" -OutFile prices.json -UseBasicParsing; $py=(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 1).Name; & $py watchdog.py --report report.html; if ($LASTEXITCODE -le 2) { Start-Process report.html }
+```
+
+Inside Claude Code: install the `/bill-check` skill once, then type `/bill-check` in any session.
+
+```sh
+mkdir -p ~/.claude/skills/bill-check && cd ~/.claude/skills/bill-check && curl -fsSLO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/watchdog.py && curl -fsSLO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/prices.json && curl -fsSLO https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/claude-skill/bill-check/SKILL.md
+```
+
+The skill runs the script locally ([skill file](claude-skill/bill-check/SKILL.md)), writes `~/ai-bill-report.html`, and asks Claude for an 8-line summary, which uses a few tokens. Prefer no Claude at all? Use the one-liners above, or the in-browser check-up at https://abwd.vercel.app/app.
+
 ## What you get
 
 It reads the session logs Claude Code already writes to `~/.claude/projects/` and answers three questions:

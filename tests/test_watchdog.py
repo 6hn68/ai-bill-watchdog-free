@@ -363,6 +363,40 @@ class WatchdogTest(unittest.TestCase):
         fixture = read(os.path.join(ROOT, "examples", "sample-report.md"))
         self.assertIn(wm, fixture)
 
+    def test_format_ccusage(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = watchdog.main(["--logs", self.logs, "--format", "ccusage"])
+        self.assertEqual(rc, 0)
+        j = json.loads(buf.getvalue())
+        self.assertEqual([d["period"] for d in j["daily"]],
+                         ["2026-11-17", "2026-11-18", "2026-11-19",
+                          "2026-11-20", "2026-11-21"])
+        d17 = j["daily"][0]
+        self.assertEqual((d17["inputTokens"], d17["outputTokens"],
+                          d17["cacheReadTokens"], d17["cacheCreationTokens"],
+                          d17["totalTokens"]),
+                         (150000, 30000, 500000, 170000, 850000))
+        self.assertAlmostEqual(d17["totalCost"], 1.8, places=6)
+        self.assertEqual(d17["modelsUsed"], [SONNET])
+        b = d17["modelBreakdowns"][0]
+        self.assertEqual(b["cacheCreation1hTokens"], 50000)
+        self.assertNotIn("missingPricing", b)
+        d18 = j["daily"][1]
+        self.assertAlmostEqual(d18["totalCost"], 1.2575, places=6)
+        self.assertEqual(d18["totalTokens"], 525000)
+        d19 = j["daily"][2]
+        self.assertAlmostEqual(d19["totalCost"], 0.0, places=6)
+        self.assertTrue(all(x.get("missingPricing")
+                            for x in d19["modelBreakdowns"]))
+        t = j["totals"]
+        self.assertEqual((t["inputTokens"], t["outputTokens"],
+                          t["cacheReadTokens"], t["cacheCreationTokens"],
+                          t["totalTokens"]),
+                         (637000, 242100, 880000, 240000, 1999100))
+        self.assertAlmostEqual(t["totalCost"], EXPECTED_TOTAL, places=6)
+        self.assertEqual(t["unpricedModels"], ["(no model name)", UNKNOWN])
+
     def test_json_output(self):
         buf = io.StringIO()
         with redirect_stdout(buf):

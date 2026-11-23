@@ -105,6 +105,7 @@ python3 watchdog.py --csv usage               # usage-daily.csv + usage-sessions
 python3 watchdog.py --bill console-export.csv # compare logs with your bill, day by day
 python3 watchdog.py --bill billing.csv --dispute pack.md   # dispute pack (.md or .html)
 python3 watchdog.py --json                    # machine-readable output
+python3 watchdog.py --format ccusage         # ccusage-compatible JSON (daily + totals)
 python3 watchdog.py --top 20                  # list more sessions
 python3 watchdog.py --logs /other/path        # a different log folder
 ```
@@ -145,6 +146,8 @@ Example: [`examples/dispute-demo/`](examples/dispute-demo/) rebuilds the five au
 ## Related tools
 
 If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage](https://github.com/ccusage/ccusage) and [CodeBurn](https://github.com/getagentseal/codeburn). Both are excellent, and both need Node. The date-range, week/month, breakdown and 5-hour-window reports here follow the report shapes those tools made popular; the code is written from scratch, nothing is copied. This project is deliberately small: one readable Python file that gives you a short list of what to change, with each saving labelled measured or modelled.
+
+**ccusage-compatible export** (`--format ccusage`) prints the same daily usage as JSON shaped like `ccusage daily --json` (see https://ccusage.com/guide/json-output), so dashboards and scripts that read ccusage output can read this too. Field mapping: `inputTokens` / `outputTokens` / `cacheReadTokens` are copied straight across; `cacheCreationTokens` is our 5-minute plus 1-hour cache writes, with `cacheCreation1hTokens` on a model row only when it has 1-hour writes; `totalCost` is API-equivalent at list price; a model row with no price in `prices.json` carries `"missingPricing": true` and the model is listed in `totals.unpricedModels`. The default text report and `--json` output are unchanged.
 
 ## Tests
 

@@ -1211,6 +1211,70 @@ def to_json(r):
     return json.dumps(out, default=conv, indent=2)
 
 
+def ccusage_json(r, data, cfg):
+    """Daily usage in ccusage's JSON shape (ccusage.com/guide/json-output):
+    {"daily": [...], "totals": {...}}. Field mapping, from our buckets:
+    inputTokens = input, outputTokens = output,
+    cacheReadTokens = cache_read,
+    cacheCreationTokens = cache_write_5m + cache_write_1h, with
+    cacheCreation1hTokens on a model row only when it has 1-hour writes;
+    totalCost = API-equivalent cost at list price; modelBreakdowns = the
+    per-model rows for the day; a row whose model has no price in
+    prices.json carries "missingPricing": true and the model is listed in
+    totals.unpricedModels (those tokens cost $0 here, never silently
+    treated as free). Our own --json output is unchanged."""
+    per_day = defaultdict(lambda: defaultdict(lambda: {
+        "tokens": {b: 0 for b in BUCKETS}, "cost": 0.0}))
+    for m in data["messages"]:
+        row = per_day[m["date"]][m["model"] or "(no model name)"]
+        for b in BUCKETS:
+            row["tokens"][b] += m["tokens"][b]
+        row["cost"] += m["cost"]
+    daily = []
+    totals = {"inputTokens": 0, "outputTokens": 0, "cacheCreationTokens": 0,
+              "cacheReadTokens": 0, "totalTokens": 0, "totalCost": 0.0}
+    unpriced = set()
+    for d in sorted(per_day):
+        day = {"period": d.isoformat(), "inputTokens": 0, "outputTokens": 0,
+               "cacheCreationTokens": 0, "cacheReadTokens": 0,
+               "totalTokens": 0, "totalCost": 0.0, "modelsUsed": [],
+               "modelBreakdowns": []}
+        for name in sorted(per_day[d]):
+            t = per_day[d][name]["tokens"]
+            entry = {"modelName": name,
+                     "inputTokens": t["input"],
+                     "outputTokens": t["output"],
+                     "cacheCreationTokens": (t["cache_write_5m"]
+                                             + t["cache_write_1h"]),
+                     "cacheReadTokens": t["cache_read"],
+                     "cost": round(per_day[d][name]["cost"], 6)}
+            if t["cache_write_1h"]:
+                entry["cacheCreation1hTokens"] = t["cache_write_1h"]
+            raw = "" if name == "(no model name)" else name
+            if match_model(raw, cfg["models"]) is None:
+                entry["missingPricing"] = True
+                unpriced.add(name)
+            day["modelBreakdowns"].append(entry)
+            day["inputTokens"] += t["input"]
+            day["outputTokens"] += t["output"]
+            day["cacheCreationTokens"] += entry["cacheCreationTokens"]
+            day["cacheReadTokens"] += t["cache_read"]
+        day["totalTokens"] = (day["inputTokens"] + day["outputTokens"]
+                              + day["cacheCreationTokens"]
+                              + day["cacheReadTokens"])
+        day["totalCost"] = round(sum(e["cost"] for e in day["modelBreakdowns"]), 6)
+        day["modelsUsed"] = [e["modelName"] for e in day["modelBreakdowns"]]
+        for k in ("inputTokens", "outputTokens", "cacheCreationTokens",
+                  "cacheReadTokens", "totalTokens"):
+            totals[k] += day[k]
+        totals["totalCost"] += day["totalCost"]
+        daily.append(day)
+    totals["totalCost"] = round(totals["totalCost"], 6)
+    if unpriced:
+        totals["unpricedModels"] = sorted(unpriced)
+    return json.dumps({"daily": daily, "totals": totals}, indent=2)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="watchdog.py",
@@ -1249,6 +1313,9 @@ def main(argv=None):
                          "charges, log summary, draft message")
     ap.add_argument("--json", action="store_true",
                     help="print JSON instead of text")
+    ap.add_argument("--format", choices=("ccusage",), default=None,
+                    help="ccusage: print ccusage-compatible JSON (daily usage "
+                         "+ totals) instead of the text report")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args(argv)
     if a.dispute and not a.bill:
@@ -1275,17 +1342,22 @@ def main(argv=None):
         print("Bill check failed: %s" % e, file=sys.stderr)
         return 1
     opts = {"period": a.period, "breakdown": a.breakdown, "blocks": a.blocks}
-    print(to_json(r) if a.json else text_report(r, cfg, a.top, opts))
+    if a.format == "ccusage":
+        print(ccusage_json(r, data, cfg))
+    elif a.json:
+        print(to_json(r))
+    else:
+        print(text_report(r, cfg, a.top, opts))
     if a.report:
         content = (html_report(r, cfg, a.top) if a.report.lower().endswith(
             (".html", ".htm")) else markdown_report(r, cfg, a.top))
         with open(a.report, "w", encoding="utf-8") as f:
             f.write(content)
-        if not a.json:
+        if not a.json and a.format != "ccusage":
             print("\nReport written: %s" % a.report)
     if a.csv:
         write_csvs(r, a.csv)
-        if not a.json:
+        if not a.json and a.format != "ccusage":
             print("CSV written: %s-daily.csv, %s-sessions.csv" % (a.csv, a.csv))
     if a.dispute:
         dp = dispute(data, r, a.bill)
@@ -1294,7 +1366,7 @@ def main(argv=None):
             (".html", ".htm")) else md)
         with open(a.dispute, "w", encoding="utf-8") as f:
             f.write(content)
-        if not a.json:
+        if not a.json and a.format != "ccusage":
             print("\nDispute pack written: %s (%d day(s) bill higher, %d "
                   "day(s) with multiple charges)" % (
                       a.dispute, len(dp["high_days"]), len(dp["bursts"])))

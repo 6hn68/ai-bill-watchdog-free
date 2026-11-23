@@ -216,6 +216,13 @@ class WatchdogTest(unittest.TestCase):
         self.assertEqual(s[0]["project"], "proj-a")
         self.assertEqual(s[1]["top_model"], OPUS)
 
+    def test_trust_line_in_text_report(self):
+        out = watchdog.text_report(self.r, self.cfg)
+        self.assertIn(watchdog.TRUST_LINE, out)
+        for phrase in ("only reads usage numbers", "never your code",
+                       "never your computer"):
+            self.assertIn(phrase, watchdog.TRUST_LINE)
+
     def test_top_limit(self):
         out = watchdog.text_report(self.r, self.cfg, top=2)
         self.assertIn("TOP 2 SESSIONS", out)

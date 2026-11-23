@@ -29,6 +29,10 @@ import calendar
 from datetime import date, datetime, timedelta, timezone
 
 VERSION = "0.4.0"
+# First-run trust line: what the tool reads, and what it never touches.
+TRUST_LINE = ("Trust: it only reads usage numbers from your local logs - never "
+              "your code, prompts or conversations. Your API key never leaves "
+              "your computer.")
 MTOK = 1_000_000
 BUCKETS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 
@@ -932,6 +936,7 @@ def text_report(r, cfg, top=10, opts=None):
     opts = opts or {}
     L = []
     L.append("Tollen v%s  (local only, nothing uploaded)" % VERSION)
+    L.append(TRUST_LINE)
     L.append("Prices: %s, source %s" % (cfg.get("fetched_at", "?"),
                                          cfg.get("source", "?")))
     w = price_age_warning(cfg)

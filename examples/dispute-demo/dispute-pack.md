@@ -51,3 +51,13 @@ Thank you,
 [Your name]
 [Account email or organization ID]
 ```
+
+## Report back your result
+
+Did this pack help? Report back anonymously - it makes the public case library stronger and helps the next person with the same problem:
+
+- Provider: [e.g. Anthropic]
+- Outcome: [e.g. refunded / credited / denied / no reply yet]
+- Amount recovered: [e.g. $0 / $25.50]
+
+No personal information is collected. Tell us here: https://abwd.vercel.app/help

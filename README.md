@@ -50,6 +50,11 @@ You can see the full text in [`examples/sample-output.txt`](examples/sample-outp
 
 ```bash
 python3 watchdog.py --days 30                 # only the last 30 days
+python3 watchdog.py --since 2026-11-01 --until 2026-11-15   # a date range
+python3 watchdog.py --period week             # also totals by week (or: month)
+python3 watchdog.py --breakdown               # cost by model and by project
+python3 watchdog.py --blocks                  # 5-hour usage windows
+python3 watchdog.py --budget 200              # exit code 2 if this month is on pace to go over $200
 python3 watchdog.py --report report.html      # one-page report (.html or .md)
 python3 watchdog.py --csv usage               # usage-daily.csv + usage-sessions.csv
 python3 watchdog.py --bill console-export.csv # compare logs with your bill, day by day
@@ -60,11 +65,15 @@ python3 watchdog.py --logs /other/path        # a different log folder
 
 **Bill check** (`--bill`) takes any CSV that has a date column and a cost or amount column, such as a usage export from your provider's console. It prints, day by day, the bill minus what your logs explain. A big gap means usage the logs don't show, for example another machine, another tool or a key you forgot about.
 
+**Month pace** is always shown: spend so far in the month of your latest activity, and a straight-line projection for the whole month. With `--budget` the script exits with code 2 when the projection is over budget, so you can use it in a cron job or CI step.
+
+**5-hour windows** (`--blocks`) group usage the way Claude's usage limits do: a window opens at the hour of the first request and lasts 5 hours.
+
 ## Privacy
 
 - It reads local files only and makes no network calls. The test suite fails if `watchdog.py` ever imports `urllib`, `socket`, `http.client`, `ssl` or `requests`.
 - It never reads API keys or passwords, and never copies your prompts into reports. Loop entries show the tool name and the first 50 characters of its input.
-- It's a single file of about 750 lines. You can read all of it before you run it.
+- It's a single file of about 1,000 lines. You can read all of it before you run it.
 
 ## Honest limits
 
@@ -76,7 +85,7 @@ python3 watchdog.py --logs /other/path        # a different log folder
 
 ## Related tools
 
-If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage](https://github.com/ccusage/ccusage) and [CodeBurn](https://github.com/getagentseal/codeburn). Both are excellent, and both need Node. This project is deliberately small: one readable Python file that gives you a short list of what to change, with each saving labelled measured or modelled.
+If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage](https://github.com/ccusage/ccusage) and [CodeBurn](https://github.com/getagentseal/codeburn). Both are excellent, and both need Node. The date-range, week/month, breakdown and 5-hour-window reports here follow the report shapes those tools made popular; the code is written from scratch, nothing is copied. This project is deliberately small: one readable Python file that gives you a short list of what to change, with each saving labelled measured or modelled.
 
 ## Tests
 
@@ -84,7 +93,7 @@ If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage
 python3 -m unittest discover -s tests -v
 ```
 
-The 25 tests run on generated logs. Every expected dollar figure is worked out by hand from list prices.
+The 37 tests run on generated logs. Every expected dollar figure is worked out by hand from list prices.
 
 ## License
 

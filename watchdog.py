@@ -23,9 +23,10 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import date, datetime, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 MTOK = 1_000_000
 BUCKETS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 
@@ -39,6 +40,8 @@ LONG_CONTEXT_TOKENS = 150_000
 PREMIUM_INPUT_PRICE = 5.0
 # Model used to price the "a cheaper model would do" what-if.
 DEFAULT_CHEAPER_MODEL = "claude-sonnet-4-6"
+# Claude subscription usage windows are 5 hours long.
+BLOCK_HOURS = 5
 # Bill CSV money column, most specific first.
 MONEY_KEYS = ("net_amount", "net amount", "cost", "amount", "usd", "total")
 
@@ -277,6 +280,101 @@ def filter_days(data, days):
     return out
 
 
+def filter_range(data, since=None, until=None):
+    """Keep messages whose local date is within [since, until] (ISO dates)."""
+    if not since and not until:
+        return data
+    lo = date.fromisoformat(since) if since else None
+    hi = date.fromisoformat(until) if until else None
+    out = dict(data)
+    out["messages"] = [m for m in data["messages"]
+                       if (lo is None or m["date"] >= lo)
+                       and (hi is None or m["date"] <= hi)]
+    return out
+
+
+def period_key(d, kind):
+    if kind == "week":
+        return (d - timedelta(days=d.weekday())).isoformat()
+    if kind == "month":
+        return d.strftime("%Y-%m")
+    return d.isoformat()
+
+
+def periods(days, kind):
+    """Roll daily rows up into weeks (key = Monday) or months (YYYY-MM)."""
+    out = {}
+    for d, row in days.items():
+        k = period_key(d, kind)
+        p = out.setdefault(k, dict({b: 0 for b in BUCKETS}, cost=0.0,
+                                   unknown=0, messages=0, days=0))
+        for b in BUCKETS:
+            p[b] += row[b]
+        p["cost"] += row["cost"]
+        p["unknown"] += row["unknown"]
+        p["messages"] += row["messages"]
+        p["days"] += 1
+    return dict(sorted(out.items()))
+
+
+def breakdown(messages, field):
+    """Cost per model or per project, most expensive first."""
+    out = {}
+    order = []
+    for m in messages:
+        k = m[field] or "(none)"
+        if k not in out:
+            out[k] = {"name": k, "cost": 0.0, "messages": 0, "tokens": 0,
+                      "unknown": 0}
+            order.append(k)
+        r = out[k]
+        r["cost"] += m["cost"]
+        r["messages"] += 1
+        r["tokens"] += sum(m["tokens"][b] for b in BUCKETS)
+        r["unknown"] += m["unknown"]
+    rows = [out[k] for k in order]
+    return sorted(rows, key=lambda r: -r["cost"])
+
+
+def blocks(messages, hours=BLOCK_HOURS):
+    """Group usage into 5-hour windows. A window opens at the hour of the
+    first message after the previous window closed (same rule Claude uses
+    for its usage limits), and closes `hours` later."""
+    out = []
+    cur = None
+    for m in sorted(messages, key=lambda m: m["ts"]):
+        if cur is None or m["ts"] >= cur["end"]:
+            start = m["ts"].replace(minute=0, second=0, microsecond=0)
+            cur = {"start": start, "end": start + timedelta(hours=hours),
+                   "first": m["ts"], "last": m["ts"], "cost": 0.0,
+                   "messages": 0, "tokens": 0, "unknown": 0}
+            out.append(cur)
+        cur["last"] = m["ts"]
+        cur["cost"] += m["cost"]
+        cur["messages"] += 1
+        cur["tokens"] += sum(m["tokens"][b] for b in BUCKETS)
+        cur["unknown"] += m["unknown"]
+    return out
+
+
+def pace(days, budget=None):
+    """Month-to-date spend for the month of the latest activity and the
+    straight-line projection for the whole month."""
+    if not days:
+        return None
+    asof = max(days)
+    mtd = sum(r["cost"] for d, r in days.items()
+              if d.year == asof.year and d.month == asof.month)
+    in_month = calendar.monthrange(asof.year, asof.month)[1]
+    projected = mtd / asof.day * in_month
+    out = {"month": asof.strftime("%Y-%m"), "as_of": asof, "mtd": mtd,
+           "elapsed_days": asof.day, "days_in_month": in_month,
+           "projected": projected, "budget": budget, "over_budget": None}
+    if budget is not None:
+        out["over_budget"] = projected > budget
+    return out
+
+
 def daily(messages):
     days = defaultdict(lambda: dict({b: 0 for b in BUCKETS}, cost=0.0,
                                     unknown=0, messages=0))
@@ -463,7 +561,7 @@ def reconcile(daily_rows, bill_path):
     return rows
 
 
-def analyse(data, cfg, bill=None):
+def analyse(data, cfg, bill=None, budget=None):
     sess = sessions(data["messages"])
     loops = find_loops(data)
     cheaper = cheaper_whatif(data, cfg)
@@ -472,7 +570,12 @@ def analyse(data, cfg, bill=None):
     result = {"days": days, "sessions": sess, "loops": loops,
               "fixes": fixes, "total": total, "cheaper": cheaper,
               "unknown_models": data["unknown_models"],
-              "counters": data["counters"], "bill": None}
+              "counters": data["counters"], "bill": None,
+              "weeks": periods(days, "week"), "months": periods(days, "month"),
+              "by_model": breakdown(data["messages"], "model"),
+              "by_project": breakdown(data["messages"], "project"),
+              "blocks": blocks(data["messages"]),
+              "pace": pace(days, budget)}
     if bill:
         result["bill"] = reconcile(days, bill)
     return result
@@ -501,7 +604,58 @@ def price_age_warning(cfg):
     return None
 
 
-def text_report(r, cfg, top=10):
+def pace_line(pc):
+    if not pc:
+        return None
+    line = ("This month (%s) so far: %s in %d of %d days -> on pace for %s."
+            % (pc["month"], money(pc["mtd"]), pc["elapsed_days"],
+               pc["days_in_month"], money(pc["projected"])))
+    if pc["budget"] is not None:
+        line += ("  OVER your %s budget." if pc["over_budget"]
+                 else "  Within your %s budget.") % money(pc["budget"])
+    return line
+
+
+def extra_sections(r, opts):
+    """Optional tables: --period week|month, --breakdown, --blocks."""
+    L = []
+    kind = opts.get("period")
+    if kind in ("week", "month"):
+        rows = r["weeks"] if kind == "week" else r["months"]
+        L.append("")
+        L.append("BY %s" % ("WEEK (starting Monday)" if kind == "week" else "MONTH"))
+        L.append("  period       cost       msgs  active days")
+        for k, v in rows.items():
+            L.append("  %-11s  %-9s  %5d  %d" % (k, money(v["cost"]),
+                                                 v["messages"], v["days"]))
+    if opts.get("breakdown"):
+        total = r["total"] or 0.0
+        for title, rows in (("BY MODEL", r["by_model"]),
+                            ("BY PROJECT", r["by_project"])):
+            L.append("")
+            L.append(title)
+            for row in rows:
+                share = 100.0 * row["cost"] / total if total else 0.0
+                L.append("  %-9s %5.1f%%  %5d msgs  %s%s" % (
+                    money(row["cost"]), share, row["messages"], row["name"],
+                    "  (some tokens unpriced)" if row["unknown"] else ""))
+    if opts.get("blocks"):
+        L.append("")
+        L.append("5-HOUR WINDOWS (the window Claude uses for usage limits)")
+        L.append("  window start      cost       msgs  first-last")
+        for b in r["blocks"]:
+            L.append("  %s  %-9s  %5d  %s-%s" % (
+                fmt_dt(b["start"]), money(b["cost"]), b["messages"],
+                b["first"].strftime("%H:%M"), b["last"].strftime("%H:%M")))
+        if r["blocks"]:
+            worst = max(r["blocks"], key=lambda b: b["cost"])
+            L.append("  Most expensive window: %s, %s" % (
+                fmt_dt(worst["start"]), money(worst["cost"])))
+    return L
+
+
+def text_report(r, cfg, top=10, opts=None):
+    opts = opts or {}
     L = []
     L.append("AI Bill Watchdog v%s  (local only, nothing uploaded)" % VERSION)
     L.append("Prices: %s, source %s" % (cfg.get("fetched_at", "?"),
@@ -521,6 +675,10 @@ def text_report(r, cfg, top=10):
              % (money(r["total"]), len(days), first, last, len(r["sessions"])))
     L.append("Most expensive day: %s, %s" % (worst_day[0],
                                              money(worst_day[1]["cost"])))
+    pl = pace_line(r.get("pace"))
+    if pl:
+        L.append(pl)
+    L.extend(extra_sections(r, opts))
     L.append("")
     L.append("TOP %d SESSIONS" % min(top, len(r["sessions"])))
     L.append("  #  cost       share  msgs  started           model / project")
@@ -584,6 +742,10 @@ def markdown_report(r, cfg, top=10):
     L.append("")
     L.append("**Total: %s** API-equivalent, %s to %s, %d sessions."
              % (money(r["total"]), min(days), max(days), len(r["sessions"])))
+    pl = pace_line(r.get("pace"))
+    if pl:
+        L.append("")
+        L.append(pl)
     save = sum(f["saving"] for f in r["fixes"]
                if f["saving"] and f["basis"] == "measured")
     if save:
@@ -600,6 +762,18 @@ def markdown_report(r, cfg, top=10):
         L.append("   Why: %s  " % f["why"])
         L.append("   Do: %s" % f["do"])
     L.append("")
+    total = r["total"] or 0.0
+    for title, rows in (("Cost by model", r["by_model"]),
+                        ("Cost by project", r["by_project"])):
+        L.append("## %s" % title)
+        L.append("")
+        L.append("| Cost | Share | Messages | Name |")
+        L.append("|---|---|---|---|")
+        for row in rows[:10]:
+            share = 100.0 * row["cost"] / total if total else 0.0
+            L.append("| %s | %.1f%% | %d | %s |" % (money(row["cost"]), share,
+                                                 row["messages"], row["name"]))
+        L.append("")
     L.append("## Top %d sessions" % min(top, len(r["sessions"])))
     L.append("")
     L.append("| # | Cost | Share | Messages | Started | Model | Project |")
@@ -713,6 +887,19 @@ def main(argv=None):
         help="price file (default: prices.json next to this script)")
     ap.add_argument("--days", type=int, default=0,
                     help="only the last N days (default: all)")
+    ap.add_argument("--since", metavar="YYYY-MM-DD",
+                    help="only usage on or after this date")
+    ap.add_argument("--until", metavar="YYYY-MM-DD",
+                    help="only usage on or before this date")
+    ap.add_argument("--period", choices=("day", "week", "month"),
+                    default="day", help="also show totals by week or month")
+    ap.add_argument("--breakdown", action="store_true",
+                    help="show cost by model and by project")
+    ap.add_argument("--blocks", action="store_true",
+                    help="show 5-hour usage windows")
+    ap.add_argument("--budget", type=float, metavar="USD",
+                    help="monthly budget; exit code 2 if this month is on "
+                         "pace to go over it")
     ap.add_argument("--top", type=int, default=10,
                     help="how many sessions to list (default 10)")
     ap.add_argument("--report", metavar="FILE",
@@ -734,13 +921,19 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print("Cannot read prices file %s: %s" % (a.prices, e), file=sys.stderr)
         return 1
-    data = filter_days(scan(a.logs, cfg), a.days)
     try:
-        r = analyse(data, cfg, a.bill)
+        data = filter_range(filter_days(scan(a.logs, cfg), a.days),
+                            a.since, a.until)
+    except ValueError as e:
+        print("Bad date (use YYYY-MM-DD): %s" % e, file=sys.stderr)
+        return 1
+    try:
+        r = analyse(data, cfg, a.bill, a.budget)
     except (OSError, ValueError) as e:
         print("Bill check failed: %s" % e, file=sys.stderr)
         return 1
-    print(to_json(r) if a.json else text_report(r, cfg, a.top))
+    opts = {"period": a.period, "breakdown": a.breakdown, "blocks": a.blocks}
+    print(to_json(r) if a.json else text_report(r, cfg, a.top, opts))
     if a.report:
         content = (html_report(r, cfg, a.top) if a.report.lower().endswith(
             (".html", ".htm")) else markdown_report(r, cfg, a.top))
@@ -752,6 +945,8 @@ def main(argv=None):
         write_csvs(r, a.csv)
         if not a.json:
             print("CSV written: %s-daily.csv, %s-sessions.csv" % (a.csv, a.csv))
+    if r["pace"] and r["pace"]["over_budget"]:
+        return 2
     return 0
 
 

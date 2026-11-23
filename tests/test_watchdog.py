@@ -373,6 +373,105 @@ class WatchdogTest(unittest.TestCase):
         self.assertIn("LOOPS", p.stdout)
         self.assertIn("Total: $3.20", p.stdout)
 
+    # ---- v0.3.0: week/month, breakdowns, 5-hour windows, pace, date range ----
+    def test_week_and_month_rollup(self):
+        self.assertEqual(list(self.r["weeks"]), ["2026-11-16"])   # Monday
+        self.assertEqual(list(self.r["months"]), ["2026-11"])
+        w = self.r["weeks"]["2026-11-16"]
+        self.assertAlmostEqual(w["cost"], EXPECTED_TOTAL, places=6)
+        self.assertEqual(w["days"], 5)
+        self.assertEqual(w["messages"], 25)
+
+    def test_week_starts_monday_across_month_end(self):
+        row = dict({b: 0 for b in watchdog.BUCKETS}, cost=1.0, unknown=0,
+                   messages=1)
+        days = {date(2026, 11, 29): dict(row), date(2026, 11, 30): dict(row),
+                date(2026, 12, 2): dict(row)}
+        weeks = watchdog.periods(days, "week")
+        self.assertEqual(list(weeks), ["2026-11-23", "2026-11-30"])
+        self.assertEqual(weeks["2026-11-30"]["days"], 2)
+        months = watchdog.periods(days, "month")
+        self.assertEqual({k: v["cost"] for k, v in months.items()},
+                         {"2026-11": 2.0, "2026-12": 1.0})
+
+    def test_breakdown_by_project(self):
+        rows = {r["name"]: r for r in self.r["by_project"]}
+        self.assertAlmostEqual(rows["proj-a"]["cost"], 1.80 + 1.2575, places=6)
+        self.assertAlmostEqual(rows["proj-b"]["cost"], 0.06 + 0.0515, places=6)
+        self.assertAlmostEqual(rows["proj-c"]["cost"], 0.027, places=6)
+        self.assertEqual([r["name"] for r in self.r["by_project"]],
+                         ["proj-a", "proj-b", "proj-c"])
+
+    def test_breakdown_by_model(self):
+        rows = {r["name"]: r for r in self.r["by_model"]}
+        self.assertAlmostEqual(rows[OPUS]["cost"], 0.825, places=6)
+        self.assertAlmostEqual(rows[HAIKU]["cost"], 0.4325, places=6)
+        self.assertEqual(rows[UNKNOWN]["cost"], 0.0)
+        self.assertEqual(rows[UNKNOWN]["unknown"], 450000)
+        self.assertAlmostEqual(sum(r["cost"] for r in self.r["by_model"]),
+                               EXPECTED_TOTAL, places=6)
+
+    def test_five_hour_blocks(self):
+        b = self.r["blocks"]
+        self.assertEqual([watchdog.fmt_dt(x["start"]) for x in b],
+                         ["2026-11-17 12:00", "2026-11-18 12:00",
+                          "2026-11-19 12:00", "2026-11-20 12:00",
+                          "2026-11-21 09:00"])
+        self.assertAlmostEqual(b[0]["cost"], 1.80, places=6)
+        self.assertAlmostEqual(b[1]["cost"], 0.825 + 0.4325, places=6)
+        self.assertEqual(b[1]["messages"], 11)
+        self.assertAlmostEqual(b[4]["cost"], 0.0515 + 0.027, places=6)
+        self.assertEqual(watchdog.fmt_dt(b[4]["end"]), "2026-11-21 14:00")
+
+    def test_block_rolls_over_after_five_hours(self):
+        m = [dict(ts=watchdog.parse_ts(t), cost=1.0, unknown=0,
+                  tokens={k: 0 for k in watchdog.BUCKETS})
+             for t in ("2026-11-17T08:30:00Z", "2026-11-17T12:59:00Z",
+                       "2026-11-17T13:00:00Z")]
+        b = watchdog.blocks(m)
+        self.assertEqual(len(b), 2)               # 08:00-13:00, then 13:00
+        self.assertEqual(b[0]["messages"], 2)
+
+    def test_month_pace(self):
+        pc = self.r["pace"]
+        self.assertEqual(pc["month"], "2026-11")
+        self.assertEqual(pc["elapsed_days"], 21)
+        self.assertEqual(pc["days_in_month"], 30)
+        self.assertAlmostEqual(pc["projected"], EXPECTED_TOTAL / 21 * 30,
+                               places=6)
+        self.assertIsNone(pc["over_budget"])
+
+    def test_budget_exit_code(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(watchdog.main(["--logs", self.logs,
+                                            "--budget", "4"]), 2)
+            self.assertEqual(watchdog.main(["--logs", self.logs,
+                                            "--budget", "5"]), 0)
+
+    def test_since_until(self):
+        d = watchdog.filter_range(self.data, "2026-11-18", "2026-11-20")
+        r = watchdog.analyse(d, self.cfg)
+        self.assertEqual(set(r["days"]), {date(2026, 11, 18),
+                                          date(2026, 11, 19),
+                                          date(2026, 11, 20)})
+        self.assertAlmostEqual(r["total"], 0.825 + 0.4325 + 0.06, places=6)
+
+    def test_bad_date_exit_1(self):
+        p = subprocess.run([sys.executable, os.path.join(ROOT, "watchdog.py"),
+                            "--logs", self.logs, "--since", "17/11/2026"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+
+    def test_cli_new_sections(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            watchdog.main(["--logs", self.logs, "--period", "month",
+                           "--breakdown", "--blocks"])
+        out = buf.getvalue()
+        for s in ("BY MONTH", "BY MODEL", "BY PROJECT", "5-HOUR WINDOWS",
+                  "on pace for $4.57"):
+            self.assertIn(s, out)
+
 
 if __name__ == "__main__":
     unittest.main()

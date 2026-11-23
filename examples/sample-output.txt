@@ -1,8 +1,9 @@
-AI Bill Watchdog v0.2.0  (local only, nothing uploaded)
+AI Bill Watchdog v0.3.0  (local only, nothing uploaded)
 Prices: 2026-11-22, source https://docs.claude.com/en/docs/about-claude/pricing
 
 Total: $3.20 API-equivalent over 5 day(s), 2026-11-17 to 2026-11-21, 5 sessions.
 Most expensive day: 2026-11-17, $1.80
+This month (2026-11) so far: $3.20 in 21 of 30 days -> on pace for $4.57.
 
 TOP 5 SESSIONS
   #  cost       share  msgs  started           model / project
@@ -36,5 +37,3 @@ UNPRICED (counted, not priced, never treated as $0):
 
 Read 5 files, 44 lines: 25 messages, 1 duplicate lines merged, 1 bad lines, 1 without timestamp (file date used).
 Dollar figures are API-equivalent at list price. On Pro/Max you pay a flat fee; use them as a usage measure.
-
-Report written: examples/sample-report.md

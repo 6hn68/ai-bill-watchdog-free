@@ -1,5 +1,7 @@
 # Tollen (free) — formerly AI Bill Watchdog
 
+[![GitHub stars](https://img.shields.io/github/stars/6hn68/ai-bill-watchdog-free)](https://github.com/6hn68/ai-bill-watchdog-free/stargazers) [Star history](https://star-history.com/#6hn68/ai-bill-watchdog-free&Date)
+
 **For developers who pay cash for API usage: reconcile your API bill against your own logs, spot overcharges and auto-recharges, and build dispute evidence you can send yourself.** Free, one Python file, runs locally, uploads nothing.
 
 - **Reconcile your bill, day by day.** `python3 watchdog.py --bill billing.csv` compares your bill CSV with what your logs explain. A big gap means usage your logs don't show — another machine, another tool, or a key you forgot about.

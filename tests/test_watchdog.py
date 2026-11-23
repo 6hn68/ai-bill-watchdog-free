@@ -549,6 +549,13 @@ class PluginManifestTest(unittest.TestCase):
                       readme)
         self.assertIn("claude plugin install ai-bill-watchdog@tollen", readme)
 
+    def test_star_badge_in_readme(self):
+        readme = read(os.path.join(ROOT, "README.md"))
+        self.assertIn("https://img.shields.io/github/stars/6hn68/"
+                      "ai-bill-watchdog-free", readme)
+        self.assertIn("https://star-history.com/#6hn68/ai-bill-watchdog-free"
+                      "&Date", readme)
+
 
 DISPUTE_BILL = (
     "Date,Description,Amount\n"

@@ -856,6 +856,16 @@ def dispute_markdown(dp, cfg):
     else:
         L.append("Nothing in these files points to a billing problem, so no "
                  "draft was written.")
+    L += ["", "## Report back your result", "",
+          "Did this pack help? Report back anonymously - it makes the public "
+          "case library stronger and helps the next person with the same "
+          "problem:", "",
+          "- Provider: [e.g. Anthropic]",
+          "- Outcome: [e.g. refunded / credited / denied / no reply yet]",
+          "- Amount recovered: [e.g. $0 / $25.50]",
+          "",
+          "No personal information is collected. Tell us here: "
+          "https://abwd.vercel.app/help"]
     return "\n".join(L) + "\n"
 
 

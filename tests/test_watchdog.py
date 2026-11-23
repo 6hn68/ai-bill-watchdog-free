@@ -663,6 +663,18 @@ class DisputeTest(unittest.TestCase):
                 self.assertIn("<pre>", text)
                 self.assertNotIn("```", text)
 
+    def test_report_back_block(self):
+        md = watchdog.dispute_markdown(self.dp, self.cfg)
+        self.assertIn("## Report back your result", md)
+        for line in ("- Provider:", "- Outcome:", "- Amount recovered:"):
+            self.assertIn(line, md)
+        self.assertIn("No personal information is collected", md)
+        self.assertIn("https://abwd.vercel.app/help", md)
+        self.assertTrue(md.rstrip().endswith("https://abwd.vercel.app/help"))
+        ht = watchdog.dispute_html(md)
+        self.assertIn("Report back your result", ht)
+        self.assertIn("https://abwd.vercel.app/help", ht)
+
     def test_public_demo_numbers(self):
         demo = os.path.join(ROOT, "examples", "dispute-demo")
         charges, _ = watchdog.bill_charges(os.path.join(demo, "bill.csv"))

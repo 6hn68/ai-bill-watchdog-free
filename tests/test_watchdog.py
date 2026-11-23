@@ -220,7 +220,7 @@ class WatchdogTest(unittest.TestCase):
         out = watchdog.text_report(self.r, self.cfg)
         self.assertIn(watchdog.TRUST_LINE, out)
         for phrase in ("only reads usage numbers", "never your code",
-                       "never your computer"):
+                       "never leaves your computer"):
             self.assertIn(phrase, watchdog.TRUST_LINE)
 
     def test_top_limit(self):

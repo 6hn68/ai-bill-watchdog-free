@@ -1,11 +1,11 @@
 {
-  "version": "2026-11-22",
-  "fetched_at": "2026-11-22",
+  "version": "2026-11-24",
+  "fetched_at": "2026-11-24",
   "source": "https://docs.claude.com/en/docs/about-claude/pricing",
   "currency": "USD",
   "unit": "per_million_tokens",
   "notes": [
-    "Standard (non-batch) list prices from Anthropic's official pricing page, re-checked row by row on 2026-11-22.",
+    "Standard (non-batch) list prices from Anthropic's official pricing page, re-checked row by row on 2026-11-24.",
     "A model whose price is unknown is reported as 'unpriced'. Its tokens are counted, never priced at $0.",
     "Claude Haiku 5.5 switches to long-context prices when one request's prompt (input + cache read + cache write) exceeds 100k tokens.",
     "Edit this file when prices change. The tool warns when it is older than 7 days."
@@ -137,12 +137,12 @@
       "match": [
         "claude-sonnet-5"
       ],
-      "input": null,
-      "output": null,
+      "input": 2,
+      "output": 10,
       "cache_write_5m": 2.5,
       "cache_write_1h": 4,
       "cache_read": 0.2,
-      "note": "Standard input/output price not listed on the official page when fetched (2026-11-22). Those tokens are counted as unpriced, never as $0."
+      "note": "Standard $2/$10 per million input/output tokens, confirmed on the official pricing page 2026-11-24 (introductory pricing through 2026-08-31 is now the standard price)."
     },
     {
       "name": "Claude Sonnet 5.5",

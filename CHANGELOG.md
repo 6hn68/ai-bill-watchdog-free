@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 (2026-11-24)
+- New "Cache & context" block in the text, Markdown, HTML and JSON reports (`cache`, `first_turns`, `big_outputs`):
+  - cache hit rate (cache reads ÷ input-side tokens) for the last 7 days and the whole range, plus what was paid above the cache-read price (an upper bound on what caching could save);
+  - each session's first-request context in tokens and dollars (median, largest, total);
+  - tool results over 50 KB, with an estimated re-sending cost (bytes ÷ 4 tokens × later requests × cache-read price; a floor).
+- README: one-line quick start.
+- 56 tests.
+
 ## 0.4.0 (2026-11-23)
 - `--dispute FILE` (with `--bill`): dispute pack in Markdown or HTML. Day-by-day bill vs logs, same-day multiple charges (with times as the bill writes them), per-day log evidence (requests, sessions, first/last time, top model), and a fact-only English draft message. It does not promise a refund; you send it yourself.
 - Example pack built from the amounts in a public issue: `examples/dispute-demo/`.

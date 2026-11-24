@@ -1,4 +1,4 @@
-AI Bill Watchdog v0.3.0  (local only, nothing uploaded)
+Tollen v0.5.0  (local only, nothing uploaded)
 Trust: it only reads usage numbers from your local logs - never your code, prompts or conversations. Your API key never leaves your computer.
 Prices: 2026-11-22, source https://docs.claude.com/en/docs/about-claude/pricing
 
@@ -17,6 +17,11 @@ TOP 5 SESSIONS
 LOOPS (same tool call, same input, 3+ times in a row)
   Bash {"command": "npm test"} x10 (10 failed)  cost $0.43, wasted after 3 tries $0.30
      session s2, 2026-11-18 15:00
+
+CACHE & CONTEXT
+  Last 7 days (2026-11-17 to 2026-11-21): cache hit rate 50.1% (880,000 of 1,757,000 input-side tokens read from cache). Paid $1.60 above the cache-read price on the rest; that is the most better caching could save, not all of it is avoidable.
+  First request of each session (context before any work): median 120,000 tokens, largest 700,000 tokens; $1.32 across 5 sessions.
+  Tool outputs over 50 KB: none.
 
 WHAT TO CHANGE
   1. Stop retry loops after 3 tries  -> saves $0.30 (measured)

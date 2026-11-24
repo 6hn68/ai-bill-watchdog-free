@@ -10,6 +10,14 @@
 
 Example: the demo in `examples/dispute-demo/` rebuilds the five auto-recharge invoices reported publicly in anthropics/claude-code#110959 (2026-11-18, five charges totaling $4,349.73).
 
+## Quick start (one line)
+
+```bash
+curl -fsSLO 'https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/{watchdog.py,prices.json}' && python3 watchdog.py
+```
+
+Two files, one command, no install. Already in Claude Code? `claude plugin marketplace add 6hn68/ai-bill-watchdog-free && claude plugin install ai-bill-watchdog@tollen`, then type `/bill-check`.
+
 ## Try it
 
 ```bash
@@ -56,6 +64,14 @@ claude plugin install ai-bill-watchdog@tollen
 ```
 
 That installs the `/bill-check` skill above. (One command also works on recent Claude Code: `claude plugin install ai-bill-watchdog --marketplace 6hn68/ai-bill-watchdog-free`.)
+
+## Cache & context (v0.5.0)
+
+Every report now has a **Cache & context** block, worked out from your own logs:
+
+- **Cache hit rate** = cache-read tokens ÷ all input-side tokens (input + cache reads + cache writes), for the last 7 days and the whole range. Next to it: what you paid above the cache-read price on the rest. That is the most better caching could save; the first write of any prompt can't be avoided.
+- **First-request context**: input-side tokens of each session's first API request (system prompt, tools, memory files, first message), with the median, the largest and what those first requests cost.
+- **Big tool outputs**: any single tool result over 50 KB. It is re-sent with every later request in its session; the estimate uses bytes ÷ 4 as tokens at the cache-read price, so it's a floor, not an exact figure.
 
 ## What you get
 

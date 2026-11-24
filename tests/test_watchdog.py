@@ -682,5 +682,93 @@ class DisputeTest(unittest.TestCase):
         self.assertEqual(len(charges), 5)
 
 
+class ContextAndCache(unittest.TestCase):
+    """v0.5.0: cache hit rate, first-turn overhead, big tool outputs.
+    Sonnet 4.5 list prices per M tokens: input 3, cache write 5m 3.75,
+    cache read 0.30.
+
+    Session X: m1 input 1000, write 20000 | 60,000-byte tool result |
+               m2 input 500, read 20000, write 16000 | m3 input 500, read 36000
+    Session Y: m4 input 2000 (plus a 100-byte result, not flagged)
+
+    cache: input 4000, read 56000, writes 36000 -> side 96000
+      hit rate = 56000 / 96000 = 58.33%
+      above read = 4000*(3-0.30) + 36000*(3.75-0.30) = 10800 + 124200
+                 = 135000 -> $0.135
+    first turns: X = 1000+20000 = 21000 tokens, $ (3000+75000)/1e6 = $0.078
+                 Y = 2000 tokens, $0.006 -> median 11500, total $0.084
+    big output: 60000 bytes -> 15000 est. tokens, re-sent by m2 and m3
+      = 15000 * 0.30 * 2 / 1e6 = $0.009
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        big = {"type": "user", "sessionId": "X", "timestamp": "2026-11-20T10:01:00Z",
+               "message": {"role": "user", "content": [
+                   {"type": "tool_result", "tool_use_id": "t-big",
+                    "content": [{"type": "text", "text": "x" * 60000}]}]}}
+        write(os.path.join(cls.tmp, "p", "x.jsonl"), [
+            asst("x1", "2026-11-20T10:00:00Z", SONNET, u(1000, 100, 0, 20000), "X",
+                 tools=[("t-big", "Bash", {"command": "cat big.log"})]),
+            big,
+            asst("x2", "2026-11-20T10:02:00Z", SONNET, u(500, 100, 20000, 16000), "X"),
+            asst("x3", "2026-11-20T10:03:00Z", SONNET, u(500, 100, 36000), "X"),
+        ])
+        write(os.path.join(cls.tmp, "p", "y.jsonl"), [
+            asst("y1", "2026-11-20T11:00:00Z", SONNET, u(2000, 10), "Y"),
+            result("t-small", "2026-11-20T11:00:30Z", "Y", False),
+        ])
+        cls.cfg = watchdog.load_prices(PRICES)
+        cls.data = watchdog.scan(cls.tmp, cls.cfg)
+        cls.r = watchdog.analyse(cls.data, cls.cfg)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    def test_cache_hit_rate(self):
+        c = self.r["cache"]["all"]
+        self.assertEqual((c["input"], c["cache_read"], c["cache_write"]),
+                         (4000, 56000, 36000))
+        self.assertAlmostEqual(c["hit_rate"], 58.3333, places=3)
+        self.assertAlmostEqual(c["above_read"], 0.135, places=9)
+        self.assertEqual(self.r["cache"]["last7"]["tokens"], 96000)
+
+    def test_first_turns(self):
+        ft = self.r["first_turns"]
+        toks = {row["session"]: row["tokens"] for row in ft["sessions"]}
+        self.assertEqual(toks, {"X": 21000, "Y": 2000})
+        self.assertEqual(ft["median_tokens"], 11500)
+        self.assertAlmostEqual(ft["total_cost"], 0.084, places=9)
+
+    def test_big_outputs(self):
+        big = self.r["big_outputs"]
+        self.assertEqual(len(big), 1)
+        self.assertEqual(big[0]["bytes"], 60000)
+        self.assertEqual(big[0]["est_tokens"], 15000)
+        self.assertEqual(big[0]["resent"], 2)
+        self.assertAlmostEqual(big[0]["est_cost"], 0.009, places=9)
+        self.assertTrue(big[0]["label"].startswith("Bash"))
+
+    def test_result_bytes(self):
+        self.assertEqual(watchdog.result_bytes("abc"), 3)
+        self.assertEqual(watchdog.result_bytes("\u00e9"), 2)
+        self.assertEqual(watchdog.result_bytes([{"type": "text", "text": "ab"},
+                                                {"type": "image"}]), 2)
+        self.assertEqual(watchdog.result_bytes(None), 0)
+
+    def test_reports_show_it(self):
+        txt = watchdog.text_report(self.r, self.cfg)
+        self.assertIn("CACHE & CONTEXT", txt)
+        self.assertIn("cache hit rate 58.3%", txt)
+        self.assertIn("Paid $0.13 above the cache-read price", txt)  # 0.135 in float formats as 0.13
+        self.assertIn("median 11,500 tokens, largest 21,000 tokens", txt)
+        self.assertIn("Tool outputs over 50 KB: 1", txt)
+        md = watchdog.markdown_report(self.r, self.cfg)
+        self.assertIn("## Cache & context", md)
+        json.loads(watchdog.to_json(self.r))
+
+
 if __name__ == "__main__":
     unittest.main()

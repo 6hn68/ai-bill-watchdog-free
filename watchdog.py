@@ -28,7 +28,7 @@ from collections import defaultdict
 import calendar
 from datetime import date, datetime, timedelta, timezone
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 # First-run trust line: what the tool reads, and what it never touches.
 TRUST_LINE = ("Trust: it only reads usage numbers from your local logs - never "
               "your code, prompts or conversations. Your API key never leaves "
@@ -159,6 +159,7 @@ def scan(log_dir, cfg):
     order = []             # dedup keys in first-seen order
     tool_calls = {}        # tool_use id -> call record
     tool_results = {}      # tool_use id -> is_error (bool)
+    result_sizes = []      # big tool results: {id, session, ts, bytes}
     unknown_models = defaultdict(int)
     c = defaultdict(int)
 
@@ -208,6 +209,12 @@ def scan(log_dir, cfg):
                             tid = b.get("tool_use_id")
                             if tid:
                                 tool_results[tid] = bool(b.get("is_error"))
+                            size = result_bytes(b.get("content"))
+                            if size >= BIG_RESULT_BYTES:
+                                rdt = parse_ts(obj.get("timestamp")) or fallback
+                                if rdt is not None:
+                                    result_sizes.append({"id": tid, "session": session,
+                                                         "ts": rdt, "bytes": size})
 
                     usage = msg.get("usage")
                     if not isinstance(usage, dict):
@@ -268,7 +275,8 @@ def scan(log_dir, cfg):
                                            "msg": key}
                         rec["tool_ids"].append(tid)
     return {"messages": [messages[k] for k in order], "tool_calls": tool_calls,
-            "tool_results": tool_results, "unknown_models": dict(unknown_models),
+            "tool_results": tool_results, "result_sizes": result_sizes,
+            "unknown_models": dict(unknown_models),
             "counters": dict(c)}
 
 
@@ -567,6 +575,143 @@ def reconcile(daily_rows, bill_path):
     return rows
 
 
+# --------------------------------------------------------------------------
+# context & cache (v0.5.0): cache hit rate, first-turn overhead, big tool
+# outputs. Free-tool diagnostics; all figures from your own logs.
+# --------------------------------------------------------------------------
+
+# A single tool result at least this big (bytes of text) is flagged.
+BIG_RESULT_BYTES = 50_000
+# Rough text-to-token ratio used ONLY for the big-tool-output estimate.
+BYTES_PER_TOKEN = 4
+
+
+def result_bytes(content):
+    """UTF-8 size of the text inside a tool_result block (images ignored)."""
+    if isinstance(content, str):
+        return len(content.encode("utf-8", "replace"))
+    total = 0
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                total += len(part["text"].encode("utf-8", "replace"))
+            elif isinstance(part, str):
+                total += len(part.encode("utf-8", "replace"))
+    return total
+
+
+def input_side(t):
+    return t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"]
+
+
+def _rates(m, cfg):
+    price = match_model(m["model"], cfg["models"])
+    if price is None:
+        return None
+    return tier_for(price, m["tokens"])
+
+
+def cache_stats(messages, cfg):
+    """Cache hit rate = cache_read / (input + cache_read + cache writes).
+    above_read = what the input side cost beyond the cache-read price:
+    input x (input - read) + writes x (write - read). It is the most a
+    perfect cache could have saved; the first write of any prompt can't be
+    avoided, so treat it as an upper bound, not a refund."""
+    tot = {"input": 0, "cache_read": 0, "cache_write": 0, "above_read": 0.0,
+           "unpriced": 0}
+    for m in messages:
+        t = m["tokens"]
+        tot["input"] += t["input"]
+        tot["cache_read"] += t["cache_read"]
+        tot["cache_write"] += t["cache_write_5m"] + t["cache_write_1h"]
+        p = _rates(m, cfg)
+        if not p or p.get("cache_read") is None:
+            tot["unpriced"] += input_side(t)
+            continue
+        rd = p["cache_read"]
+        for b in ("input", "cache_write_5m", "cache_write_1h"):
+            rate = p.get(b)
+            if rate is not None and t[b]:
+                tot["above_read"] += t[b] * max(rate - rd, 0.0) / MTOK
+    side = tot["input"] + tot["cache_read"] + tot["cache_write"]
+    tot["hit_rate"] = (100.0 * tot["cache_read"] / side) if side else None
+    tot["tokens"] = side
+    return tot
+
+
+def cache_report(messages, cfg):
+    """Whole range plus the last 7 days ending on the latest log day."""
+    out = {"all": cache_stats(messages, cfg), "last7": None}
+    if messages:
+        latest = max(m["date"] for m in messages)
+        recent = [m for m in messages if (latest - m["date"]).days < 7]
+        out["last7"] = cache_stats(recent, cfg)
+        out["last7"]["from"] = min(m["date"] for m in recent)
+        out["last7"]["to"] = latest
+    return out
+
+
+def first_turns(messages, cfg):
+    """Input-side tokens of each session's first API request: the context
+    the session starts with (system prompt, tools, memory files, first
+    message) before any work is done."""
+    first = {}
+    for m in messages:
+        cur = first.get(m["session"])
+        if cur is None or m["ts"] < cur["ts"]:
+            first[m["session"]] = m
+    rows = []
+    for sid, m in first.items():
+        t = m["tokens"]
+        p = _rates(m, cfg)
+        cost = None
+        if p:
+            cost = 0.0
+            for b in ("input", "cache_read", "cache_write_5m", "cache_write_1h"):
+                if p.get(b) is not None:
+                    cost += t[b] * p[b] / MTOK
+        rows.append({"session": sid, "project": m["project"], "ts": m["ts"],
+                     "model": m["model"], "tokens": input_side(t), "cost": cost})
+    rows.sort(key=lambda r: -r["tokens"])
+    toks = sorted(r["tokens"] for r in rows)
+    med = None
+    if toks:
+        n = len(toks)
+        med = toks[n // 2] if n % 2 else (toks[n // 2 - 1] + toks[n // 2]) / 2.0
+    return {"sessions": rows, "median_tokens": med,
+            "total_cost": sum(r["cost"] or 0.0 for r in rows)}
+
+
+def big_outputs(data, cfg):
+    """Tool results >= BIG_RESULT_BYTES. Once in the conversation, a result
+    is sent again with every later request in that session. Estimated
+    re-billing = (bytes / 4) tokens x later requests x the cache-read price
+    of each later request's model. Cache-read is the cheapest way it can be
+    re-sent, so this is a floor; bytes/4 is a rough token estimate."""
+    by_session = defaultdict(list)
+    for m in data["messages"]:
+        by_session[m["session"]].append(m)
+    calls = data.get("tool_calls", {})
+    out = []
+    for r in data.get("result_sizes", []):
+        later = [m for m in by_session.get(r["session"], []) if m["ts"] > r["ts"]]
+        if not later and r["session"] not in by_session:
+            continue
+        est_tokens = r["bytes"] // BYTES_PER_TOKEN
+        cost = 0.0
+        for m in later:
+            p = _rates(m, cfg)
+            if p and p.get("cache_read") is not None:
+                cost += est_tokens * p["cache_read"] / MTOK
+        call = calls.get(r["id"]) or {}
+        out.append({"label": call.get("label") or "(tool result)",
+                    "session": r["session"], "ts": r["ts"], "bytes": r["bytes"],
+                    "est_tokens": est_tokens, "resent": len(later),
+                    "est_cost": cost})
+    out.sort(key=lambda x: -x["est_cost"])
+    return out
+
+
 def analyse(data, cfg, bill=None, budget=None):
     sess = sessions(data["messages"])
     loops = find_loops(data)
@@ -581,7 +726,10 @@ def analyse(data, cfg, bill=None, budget=None):
               "by_model": breakdown(data["messages"], "model"),
               "by_project": breakdown(data["messages"], "project"),
               "blocks": blocks(data["messages"]),
-              "pace": pace(days, budget)}
+              "pace": pace(days, budget),
+              "cache": cache_report(data["messages"], cfg),
+              "first_turns": first_turns(data["messages"], cfg),
+              "big_outputs": big_outputs(data, cfg)}
     if bill:
         result["bill"] = reconcile(days, bill)
     return result
@@ -942,6 +1090,52 @@ def extra_sections(r, opts):
     return L
 
 
+def kb(n):
+    return "%.0f KB" % (n / 1000.0)
+
+
+def context_lines(r):
+    """CACHE & CONTEXT block, shared by the text and markdown reports."""
+    L = []
+    c = r.get("cache") or {}
+    for key, name in (("last7", "Last 7 days"), ("all", "Whole range")):
+        s = c.get(key)
+        if not s or s["hit_rate"] is None:
+            continue
+        if key == "all" and c.get("last7") and c["last7"]["tokens"] == s["tokens"]:
+            continue  # the whole range is the last 7 days: one line is enough
+        span = (" (%s to %s)" % (s["from"], s["to"])) if key == "last7" else ""
+        L.append("%s%s: cache hit rate %.1f%% (%s of %s input-side tokens read "
+                 "from cache). Paid %s above the cache-read price on the rest; "
+                 "that is the most better caching could save, not all of it "
+                 "is avoidable." % (name, span, s["hit_rate"],
+                                    "{:,}".format(s["cache_read"]),
+                                    "{:,}".format(s["tokens"]),
+                                    money(s["above_read"])))
+    ft = r.get("first_turns") or {}
+    rows = ft.get("sessions") or []
+    if rows:
+        L.append("First request of each session (context before any work): "
+                 "median %s tokens, largest %s tokens; %s across %d sessions."
+                 % ("{:,}".format(int(ft["median_tokens"])),
+                    "{:,}".format(rows[0]["tokens"]), money(ft["total_cost"]),
+                    len(rows)))
+    big = r.get("big_outputs") or []
+    if big:
+        L.append("Tool outputs over %s: %d. Each is re-sent with every later "
+                 "request in its session; estimated %s (bytes/4 tokens at "
+                 "cache-read price, a floor)." % (
+                     kb(BIG_RESULT_BYTES), len(big),
+                     money(sum(b["est_cost"] for b in big))))
+        for b in big[:5]:
+            L.append("  %s, %s, re-sent %d times, est. %s  (session %s)" % (
+                short(b["label"], 50), kb(b["bytes"]), b["resent"],
+                money(b["est_cost"]), b["session"]))
+    else:
+        L.append("Tool outputs over %s: none." % kb(BIG_RESULT_BYTES))
+    return L
+
+
 def text_report(r, cfg, top=10, opts=None):
     opts = opts or {}
     L = []
@@ -987,6 +1181,10 @@ def text_report(r, cfg, top=10, opts=None):
             L.append("     session %s, %s" % (l["session"], fmt_dt(l["start"])))
     else:
         L.append("LOOPS: none found.")
+    L.append("")
+    L.append("CACHE & CONTEXT")
+    for line in context_lines(r):
+        L.append(line if line.startswith("  ") else "  " + line)
     L.append("")
     L.append("WHAT TO CHANGE")
     if not r["fixes"]:
@@ -1072,6 +1270,11 @@ def markdown_report(r, cfg, top=10):
         L.append("| %d | %s | %.1f%% | %d | %s | %s | %s |" % (
             i, money(s["cost"]), share, s["messages"], fmt_dt(s["start"]),
             s["top_model"], s["project"]))
+    L.append("")
+    L.append("## Cache & context")
+    L.append("")
+    for line in context_lines(r):
+        L.append(("  - " + line.strip()) if line.startswith("  ") else "- " + line)
     L.append("")
     L.append("## Loops")
     L.append("")

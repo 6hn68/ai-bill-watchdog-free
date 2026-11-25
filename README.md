@@ -122,6 +122,8 @@ python3 watchdog.py --report report.html      # one-page report (.html or .md)
 python3 watchdog.py --csv usage               # usage-daily.csv + usage-sessions.csv
 python3 watchdog.py --bill console-export.csv # compare logs with your bill, day by day
 python3 watchdog.py --bill billing.csv --dispute pack.md   # dispute pack (.md or .html)
+python3 watchdog.py --bill billing.csv --export-letter letter.txt  # just the draft message, edit and send it yourself
+python3 watchdog.py --dry-run                  # one line of totals, writes nothing, reads no key
 python3 watchdog.py --json                    # machine-readable output
 python3 watchdog.py --format ccusage         # ccusage-compatible JSON (daily + totals)
 python3 watchdog.py --top 20                  # list more sessions
@@ -138,6 +140,8 @@ python3 watchdog.py --logs /other/path        # a different log folder
 - a short English draft message that states these facts and asks for a review.
 
 The pack only states facts from your own files. It does not promise a refund or credit, nobody sends it for you, and no one takes a cut. You read it, edit it, and decide whether to send it yourself.
+
+**Export letter** (`--export-letter FILE`, needs `--bill`) writes only that draft message to a file, so you can edit it and send it from your own account. If nothing in the files points to a billing problem, no file is written. **Dry run** (`--dry-run`) prints one line of totals and exits: it reads usage numbers only, writes no files, and never reads a key — combine it with `--report`, `--csv`, `--dispute` or `--export-letter` and those writes are skipped.
 
 This tool and the pack stay free and MIT-licensed. If you would rather have someone chase the money, there is an optional recovery service at [abwd.vercel.app](https://abwd.vercel.app/#pricing): we draft the appeal and every follow-up, you send them from your own account, and the fee is 25% of what comes back. Under $20 back, no fee. Nothing back, $0. Nothing is paid up front, and no password or API key is ever asked for.
 

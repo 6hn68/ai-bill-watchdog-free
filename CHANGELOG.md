@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 (2026-11-25)
+- `--dry-run`: print one line of totals and exit. Reads usage numbers only, writes no files, reads no key. Write options (`--report`, `--csv`, `--dispute`, `--export-letter`) are skipped when it is set.
+- `--export-letter FILE` (with `--bill`): write only the dispute draft message to a file, so you can edit it and send it yourself. It promises no refund. If nothing in the files points to a billing problem, no file is written (exit 1).
+- 60 tests.
+
 ## 0.5.0 (2026-11-24)
 - New "Cache & context" block in the text, Markdown, HTML and JSON reports (`cache`, `first_turns`, `big_outputs`):
   - cache hit rate (cache reads ÷ input-side tokens) for the last 7 days and the whole range, plus what was paid above the cache-read price (an upper bound on what caching could save);

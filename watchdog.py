@@ -28,7 +28,7 @@ from collections import defaultdict
 import calendar
 from datetime import date, datetime, timedelta, timezone
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 # First-run trust line: what the tool reads, and what it never touches.
 TRUST_LINE = ("Trust: it only reads usage numbers from your local logs - never "
               "your code, prompts or conversations. Your API key never leaves "
@@ -1021,6 +1021,18 @@ def dispute_markdown(dp, cfg):
 # output
 # --------------------------------------------------------------------------
 
+def dry_run_line(data, r):
+    """One-line preview for --dry-run: totals only, no files written,
+    no key read (this tool never reads keys)."""
+    if not r["days"]:
+        core = "no usage found"
+    else:
+        core = "%s API-equivalent over %d day(s), %d sessions, %d messages" % (
+            money(r["total"]), len(r["days"]), len(r["sessions"]),
+            len(data["messages"]))
+    return "Dry run: %s. Nothing was written; no key was read." % core
+
+
 def money(v):
     return "n/a" if v is None else "$%.2f" % v
 
@@ -1524,6 +1536,13 @@ def main(argv=None):
                     help="with --bill: write a billing dispute evidence pack "
                          "(.md or .html): day-by-day gaps, same-day multiple "
                          "charges, log summary, draft message")
+    ap.add_argument("--export-letter", metavar="FILE",
+                    help="with --bill: write only the dispute draft message "
+                         "to FILE (edit it yourself, then send it yourself; "
+                         "it promises no refund)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print one line of totals and exit: reads usage "
+                         "numbers only, writes no files, reads no key")
     ap.add_argument("--json", action="store_true",
                     help="print JSON instead of text")
     ap.add_argument("--format", choices=("ccusage",), default=None,
@@ -1531,8 +1550,9 @@ def main(argv=None):
                          "+ totals) instead of the text report")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args(argv)
-    if a.dispute and not a.bill:
-        print("--dispute needs --bill (your bill CSV).", file=sys.stderr)
+    if (a.dispute or a.export_letter) and not a.bill:
+        print("--dispute and --export-letter need --bill (your bill CSV).",
+              file=sys.stderr)
         return 1
     if not os.path.isdir(a.logs):
         print("Log folder not found: %s\nUse --logs to point at your Claude "
@@ -1554,6 +1574,9 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print("Bill check failed: %s" % e, file=sys.stderr)
         return 1
+    if a.dry_run:
+        print(dry_run_line(data, r))
+        return 0
     opts = {"period": a.period, "breakdown": a.breakdown, "blocks": a.blocks}
     if a.format == "ccusage":
         print(ccusage_json(r, data, cfg))
@@ -1572,8 +1595,10 @@ def main(argv=None):
         write_csvs(r, a.csv)
         if not a.json and a.format != "ccusage":
             print("CSV written: %s-daily.csv, %s-sessions.csv" % (a.csv, a.csv))
-    if a.dispute:
+    dp = None
+    if a.dispute or a.export_letter:
         dp = dispute(data, r, a.bill)
+    if a.dispute:
         md = dispute_markdown(dp, cfg)
         content = (dispute_html(md) if a.dispute.lower().endswith(
             (".html", ".htm")) else md)
@@ -1583,6 +1608,17 @@ def main(argv=None):
             print("\nDispute pack written: %s (%d day(s) bill higher, %d "
                   "day(s) with multiple charges)" % (
                       a.dispute, len(dp["high_days"]), len(dp["bursts"])))
+    if a.export_letter:
+        letter = dispute_letter(dp)
+        if letter is None:
+            print("Nothing in these files points to a billing problem, so "
+                  "no letter was written.", file=sys.stderr)
+            return 1
+        with open(a.export_letter, "w", encoding="utf-8") as f:
+            f.write(letter + "\n")
+        if not a.json and a.format != "ccusage":
+            print("\nAppeal letter draft written: %s (edit before sending; "
+                  "it promises no refund)" % a.export_letter)
     if r["pace"] and r["pace"]["over_budget"]:
         return 2
     return 0

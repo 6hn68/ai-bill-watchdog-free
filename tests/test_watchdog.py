@@ -351,6 +351,21 @@ class WatchdogTest(unittest.TestCase):
         with open(pre + "-daily.csv") as f:
             self.assertEqual(len(f.read().strip().splitlines()), 1 + 5)
 
+    def test_dry_run_prints_one_line_and_writes_nothing(self):
+        md = os.path.join(self.tmp, "dry.md")
+        pre = os.path.join(self.tmp, "dry-out")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(watchdog.main(["--logs", self.logs, "--dry-run",
+                                            "--report", md, "--csv", pre]), 0)
+        lines = buf.getvalue().strip().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("Dry run: "))
+        self.assertIn("Nothing was written; no key was read.", lines[0])
+        self.assertFalse(os.path.exists(md))
+        self.assertFalse(os.path.exists(pre + "-daily.csv"))
+        self.assertFalse(os.path.exists(pre + "-sessions.csv"))
+
     def test_report_watermark(self):
         wm = ("Made with ai-bill-watchdog-free "
               "(github.com/6hn68/ai-bill-watchdog-free)")
@@ -662,6 +677,35 @@ class DisputeTest(unittest.TestCase):
             if ext == "html":
                 self.assertIn("<pre>", text)
                 self.assertNotIn("```", text)
+
+    def test_cli_export_letter_writes_letter_only(self):
+        out = os.path.join(self.tmp, "letter.txt")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(watchdog.main(["--logs", self.logs, "--bill",
+                                            self.bill, "--export-letter",
+                                            out]), 0)
+        text = read(out)
+        self.assertTrue(text.startswith("Subject: Request for a billing review"))
+        self.assertIn("$1,028.70", text)
+        self.assertNotIn("guarantee", text.lower())
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "nopack.md")))
+
+    def test_cli_export_letter_needs_bill(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(watchdog.main(["--logs", self.logs,
+                                            "--export-letter",
+                                            os.path.join(self.tmp, "l.txt")]), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "l.txt")))
+
+    def test_cli_export_letter_clean_bill_writes_nothing(self):
+        p = os.path.join(self.tmp, "clean2.csv")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("Date,Cost\n2026-11-17,1.80\n")
+        out = os.path.join(self.tmp, "clean-letter.txt")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(watchdog.main(["--logs", self.logs, "--bill", p,
+                                            "--export-letter", out]), 1)
+        self.assertFalse(os.path.exists(out))
 
     def test_report_back_block(self):
         md = watchdog.dispute_markdown(self.dp, self.cfg)

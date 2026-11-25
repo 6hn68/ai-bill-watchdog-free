@@ -1,4 +1,4 @@
-Tollen v0.5.0  (local only, nothing uploaded)
+Tollen v0.6.0  (local only, nothing uploaded)
 Trust: it only reads usage numbers from your local logs - never your code, prompts or conversations. Your API key never leaves your computer.
 Prices: 2026-11-22, source https://docs.claude.com/en/docs/about-claude/pricing
 

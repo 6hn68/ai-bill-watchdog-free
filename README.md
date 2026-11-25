@@ -139,6 +139,8 @@ python3 watchdog.py --logs /other/path        # a different log folder
 
 The pack only states facts from your own files. It does not promise a refund or credit, nobody sends it for you, and no one takes a cut. You read it, edit it, and decide whether to send it yourself.
 
+This tool and the pack stay free and MIT-licensed. If you would rather have someone chase the money, there is an optional recovery service at [abwd.vercel.app](https://abwd.vercel.app/#pricing): we draft the appeal and every follow-up, you send them from your own account, and the fee is 25% of what comes back. Under $20 back, no fee. Nothing back, $0. Nothing is paid up front, and no password or API key is ever asked for.
+
 Which rows count as charges: if the CSV has a description-type column (description, type, item, category, ...), a row counts when its amount is above zero and the text mentions a recharge, top-up, purchase, credit, invoice, payment or charge. A CSV with no description and no model column (a plain list of payments) counts every positive row. A CSV with a model column and no description is read as a usage export, so it has no charges, only daily totals.
 
 Example: [`examples/dispute-demo/`](examples/dispute-demo/) rebuilds the five auto-recharge invoices reported publicly in [anthropics/claude-code#110959](https://github.com/anthropics/claude-code/issues/110959) (2026-11-18, five charges totaling $4,349.73). Only the amounts from that issue are used; the issue gives the first and last times, not each charge's time, so the demo bill has no times.

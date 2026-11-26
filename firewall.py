@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tollen firewall (free) -- stop AI spend *before* the request is charged.
+"""Fireborn firewall (free) -- stop AI spend *before* the request is charged.
 
 A tiny proxy that runs on your own computer. Point Claude Code, the
 Anthropic SDK or the OpenAI SDK at it, and every billable request is
@@ -313,7 +313,7 @@ def billable(method, path, provider):
 
 
 def error_body(provider, reason):
-    msg = "Blocked by your local Tollen firewall before anything was charged: " + reason + "."
+    msg = "Blocked by your local Fireborn firewall before anything was charged: " + reason + "."
     if provider == "anthropic":
         return {"type": "error", "error": {"type": "budget_exceeded", "message": msg}}
     return {"error": {"message": msg, "type": "budget_exceeded",
@@ -552,7 +552,7 @@ def serve(opts, ready=None, log=None):
     if ready:
         ready(srv)
         return srv
-    log("Tollen firewall %s on http://127.0.0.1:%d  (day %s, request %s, burst %s/%ds, loop %dx)"
+    log("Fireborn firewall %s on http://127.0.0.1:%d  (day %s, request %s, burst %s/%ds, loop %dx)"
         % (VERSION, srv.server_address[1], usd(opts.day_usd), usd(opts.request_usd),
            usd(opts.burst_usd), opts.burst_window, opts.loop_repeats))
     log("Point your tools here:  python3 firewall.py env  |  ledger: %s" % opts.ledger)

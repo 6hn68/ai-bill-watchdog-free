@@ -3,7 +3,7 @@
     "name": "6hn68",
     "url": "https://github.com/6hn68/ai-bill-watchdog-free"
   },
-  "description": "Tollen (free): find where your Claude Code money went. Reconciles your API bill against local logs, spots overcharges and auto-recharges, and builds dispute evidence you can send yourself. Local only, uploads nothing.",
+  "description": "Fireborn (free): find where your Claude Code money went. Reconciles your API bill against local logs, spots overcharges and auto-recharges, and builds dispute evidence you can send yourself. Local only, uploads nothing.",
   "homepage": "https://github.com/6hn68/ai-bill-watchdog-free",
   "keywords": [
     "billing",

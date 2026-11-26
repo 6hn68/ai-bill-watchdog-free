@@ -553,7 +553,7 @@ class PluginManifestTest(unittest.TestCase):
         self.assertEqual(plug["name"], "ai-bill-watchdog")
         self.assertEqual(plug["version"], watchdog.VERSION)
         self.assertTrue(plug["description"])
-        self.assertEqual(mkt["name"], "tollen")
+        self.assertEqual(mkt["name"], "fireborn")
         entry = mkt["plugins"][0]
         self.assertEqual(entry["name"], plug["name"])
         self.assertEqual(entry["source"], "./")
@@ -562,7 +562,7 @@ class PluginManifestTest(unittest.TestCase):
         readme = read(os.path.join(ROOT, "README.md"))
         self.assertIn("claude plugin marketplace add 6hn68/ai-bill-watchdog-free",
                       readme)
-        self.assertIn("claude plugin install ai-bill-watchdog@tollen", readme)
+        self.assertIn("claude plugin install ai-bill-watchdog@fireborn", readme)
 
     def test_star_badge_in_readme(self):
         readme = read(os.path.join(ROOT, "README.md"))

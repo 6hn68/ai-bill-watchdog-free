@@ -1,4 +1,4 @@
-# Tollen (free), formerly AI Bill Watchdog
+# Fireborn (free), formerly Fireborn and AI Bill Watchdog
 
 [![GitHub stars](https://img.shields.io/github/stars/6hn68/ai-bill-watchdog-free)](https://github.com/6hn68/ai-bill-watchdog-free/stargazers) [Star history](https://star-history.com/#6hn68/ai-bill-watchdog-free&Date)
 
@@ -39,7 +39,7 @@ Tested so far against a local stand-in provider (74 tests); a live end-to-end ru
 curl -fsSLO 'https://raw.githubusercontent.com/6hn68/ai-bill-watchdog-free/main/{watchdog.py,prices.json}' && python3 watchdog.py
 ```
 
-Two files, one command, no install. Already in Claude Code? `claude plugin marketplace add 6hn68/ai-bill-watchdog-free && claude plugin install ai-bill-watchdog@tollen`, then type `/bill-check`.
+Two files, one command, no install. Already in Claude Code? `claude plugin marketplace add 6hn68/ai-bill-watchdog-free && claude plugin install ai-bill-watchdog@fireborn`, then type `/bill-check`.
 
 ## Try it
 
@@ -83,7 +83,7 @@ Install it as a Claude Code plugin instead, and it updates with the repo:
 
 ```sh
 claude plugin marketplace add 6hn68/ai-bill-watchdog-free
-claude plugin install ai-bill-watchdog@tollen
+claude plugin install ai-bill-watchdog@fireborn
 ```
 
 That installs the `/bill-check` skill above. (One command also works on recent Claude Code: `claude plugin install ai-bill-watchdog --marketplace 6hn68/ai-bill-watchdog-free`.)

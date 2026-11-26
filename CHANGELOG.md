@@ -1,5 +1,15 @@
 # Changelog
 
+## firewall 0.1.0 (2026-11-26)
+- New `firewall.py`: a local proxy that stops spend before a request is charged. Point `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` at `http://127.0.0.1:8787`.
+  - Daily, session and single-request dollar caps, checked against a conservative worst-case estimate before forwarding. Daily spend survives a restart (read back from the ledger).
+  - Loop breaker (same newest message repeated) and burst breaker (dollars per time window).
+  - Blocked requests get HTTP 402 with a plain reason in the provider's own error shape. 402 because SDKs auto-retry 429.
+  - Streaming passes through unchanged; real usage is read from the stream or body to settle the cost. Unknown models are priced at the highest known rate, never $0.
+  - API keys pass straight through and are never stored; prompts are never logged. The ledger keeps time, model, tokens, dollars and the decision.
+  - `firewall.py reconcile --bill billing.csv` compares the bill with every request that went through the firewall; `summary` prints spend and blocks per day.
+- 73 tests (13 new).
+
 ## 0.6.0 (2026-11-25)
 - `--dry-run`: print one line of totals and exit. Reads usage numbers only, writes no files, reads no key. Write options (`--report`, `--csv`, `--dispute`, `--export-letter`) are skipped when it is set.
 - `--export-letter FILE` (with `--bill`): write only the dispute draft message to a file, so you can edit it and send it yourself. It promises no refund. If nothing in the files points to a billing problem, no file is written (exit 1).

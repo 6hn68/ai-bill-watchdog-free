@@ -4,3 +4,6 @@ __pycache__/
 *-sessions.csv
 report.html
 report.md
+cases-*.json
+dispute-cases/
+*.csv

@@ -8,7 +8,8 @@
   - Streaming passes through unchanged; real usage is read from the stream or body to settle the cost. Unknown models are priced at the highest known rate, never $0.
   - API keys pass straight through and are never stored; prompts are never logged. The ledger keeps time, model, tokens, dollars and the decision.
   - `firewall.py reconcile --bill billing.csv` compares the bill with every request that went through the firewall; `summary` prints spend and blocks per day.
-- 73 tests (13 new).
+- Claude Code connection probe (`HEAD /api/hello`) passes through.
+- 74 tests (14 new).
 
 ## 0.6.0 (2026-11-25)
 - `--dry-run`: print one line of totals and exit. Reads usage numbers only, writes no files, reads no key. Write options (`--report`, `--csv`, `--dispute`, `--export-letter`) are skipped when it is set.

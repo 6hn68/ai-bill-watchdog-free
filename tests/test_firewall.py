@@ -18,6 +18,11 @@ class Upstream(BaseHTTPRequestHandler):
     calls = []
     mode = "json"
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def log_message(self, *a):
         pass
 
@@ -218,6 +223,13 @@ class FirewallTest(unittest.TestCase):
             f.write("date,amount\n%s,25.00\n" % fw.date.today().isoformat())
         opts = fw.build_parser().parse_args(["reconcile", "--ledger", self.ledger, "--bill", bill])
         self.assertEqual(fw.cmd_reconcile(opts), 1)
+
+    def test_head_probe_passes_through(self):
+        self.start()
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("HEAD", "/api/hello")
+        self.assertEqual(c.getresponse().status, 200)
+        self.assertEqual(self.rows(), [])
 
     def test_estimate_is_conservative(self):
         cfg = fw.wd.load_prices(os.path.join(os.path.dirname(HERE), "prices.json"))

@@ -434,6 +434,7 @@ def make_handler(guard, ledger, upstreams, cfg, log):
         do_POST = _proxy
         do_GET = _proxy
         do_DELETE = _proxy
+        do_HEAD = _proxy  # Claude Code sends HEAD /api/hello to warm the connection
 
     return Handler
 

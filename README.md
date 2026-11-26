@@ -10,6 +10,29 @@
 
 Example: the demo in `examples/dispute-demo/` rebuilds the five auto-recharge invoices reported publicly in anthropics/claude-code#110959 (2026-11-18, five charges totaling $4,349.73).
 
+## Stop the spend before it happens (new: firewall.py)
+
+Caps and alerts on the provider side fire after you've been charged. `firewall.py` runs on your machine and checks each request before it goes out.
+
+```bash
+python3 firewall.py --day-usd 20          # listens on 127.0.0.1:8787
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
+export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+claude                                     # or your own script / SDK
+```
+
+- **Hard caps.** Daily, per-session and per-request dollar limits. Each request is priced at its worst case before it is sent, so a cap can't be overshot by one big call. A restart doesn't reset today's spend.
+- **Loop and burst breakers.** It stops a step that keeps getting resent, and it stops when too much money goes out in a short window. Both patterns show up again and again in the public billing cases we collected.
+- **It returns 402, not 429.** SDKs retry 429 on their own, so a cap that answers 429 just gets hit again. 402 is not retried. The error message tells you which limit tripped and how to raise it.
+- **Your key stays yours.** It passes straight through to the provider over HTTPS. It is never stored or logged, and prompts are never logged.
+- **Line it up with the bill.** `python3 firewall.py reconcile --bill billing.csv` compares your bill with every request that went through the firewall. A day billed above that is worth a dispute (`watchdog.py --bill ... --dispute pack.md`).
+
+Defaults: `--day-usd 20`, `--request-usd 5`, `--burst-usd 5` per 10 minutes, and `--loop-repeats 5` in 10 minutes. Set any of them to `0` to turn it off. `python3 firewall.py summary` shows spend and blocks per day.
+
+Honest limits: it only governs traffic you point at it. A Pro/Max subscription is billed at a flat rate, so for those plans the dollar figures are API-equivalent usage, not charges. Streaming works, and the cost is settled from the usage numbers in the stream.
+
+Tested so far against a local stand-in provider (74 tests); a live end-to-end run against the real APIs is in progress.
+
 ## Quick start (one line)
 
 ```bash
@@ -164,7 +187,7 @@ Example: [`examples/dispute-demo/`](examples/dispute-demo/) rebuilds the five au
 - **API-equivalent, not your invoice.** Dollar figures are tokens × list price. On a Pro or Max subscription you pay a flat fee, so read the dollars as "how much usage", not "what you were charged".
 - **Claude Code only.** Cursor, Copilot and Codex logs aren't read (yet).
 - **Prices live in `prices.json`**, copied from Anthropic's official pricing page on 2026-11-22. The tool warns when the file is more than 7 days old. Unknown models are listed as *unpriced*, never counted as $0.
-- **Loops are found after the fact.** The tool reports them but doesn't stop a running session. To stop one live, use a hook or `--max-turns`.
+- **`watchdog.py` finds loops after the fact.** To stop one live, run traffic through `firewall.py` (above), or use a hook or `--max-turns`.
 - If an API response is written as several log lines with the same message id, its usage is counted once.
 
 ## Related tools
@@ -179,7 +202,7 @@ If you want dashboards, menu-bar widgets or many tools at once, look at [ccusage
 python3 -m unittest discover -s tests -v
 ```
 
-The 45 tests run on generated logs. Every expected dollar figure is worked out by hand from list prices.
+The tests run on generated logs and a local stand-in provider. Every expected dollar figure is worked out by hand from list prices.
 
 ## License
 

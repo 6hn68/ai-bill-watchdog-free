@@ -736,7 +736,7 @@ def analyse(data, cfg, bill=None, budget=None):
 
 
 # --------------------------------------------------------------------------
-# dispute pack (v0.4.0): facts for a billing review you send yourself
+# dispute pack (v0.6.0): facts for a billing review you send yourself
 # --------------------------------------------------------------------------
 
 # Words that mark a bill row as a charge/payment rather than a usage line.

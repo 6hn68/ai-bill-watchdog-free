@@ -137,12 +137,12 @@
       "match": [
         "claude-sonnet-5"
       ],
-      "input": 2,
-      "output": 10,
+      "input": null,
+      "output": null,
       "cache_write_5m": 2.5,
       "cache_write_1h": 4,
       "cache_read": 0.2,
-      "note": "Standard $2/$10 per million input/output tokens, confirmed on the official pricing page 2026-11-24 (introductory pricing through 2026-08-31 is now the standard price)."
+      "note": "input/output 价官方表 2026-11-25 重抓时仍为空白，标价未知（null），绝不按 0 美元算；原 $2/$10 系 Batch 价 $1/$5 翻倍反推，已按 05-D #26 标没核实/待复核，复核过官方页前不许当已核实引用；缓存写 5 分钟 $2.50 / 写 1 小时 $4 / 缓存读 $0.20 三价官方表有数，保留"
     },
     {
       "name": "Claude Sonnet 5.5",

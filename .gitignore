@@ -1,3 +1,13 @@
+# Secrets & credentials — never commit
+.env*
+*.pem
+*.key
+credentials*
+*token*
+*secret*
+.vercel/
+*.map
+
 __pycache__/
 *.pyc
 *-daily.csv
